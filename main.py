@@ -4,7 +4,11 @@ from servicos.servico_operacao import ServicoOperacao
 
 
 def main():
-    janela = JanelaPrincipal(ServicoOperacao(), ConversaoImagem())
+    janela = JanelaPrincipal(
+        ServicoOperacao(),
+        conversao_jpg_para_png=ConversaoImagem("PNG"),
+        conversao_png_para_jpg=ConversaoImagem("JPEG"),
+    )
     janela.mainloop()
 
 
