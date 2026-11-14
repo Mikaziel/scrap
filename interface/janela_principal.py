@@ -17,6 +17,7 @@ class JanelaPrincipal(ctk.CTk):
         servico_operacao: ServicoOperacao,
         conversao_jpg_para_png: OperacaoArquivo,
         conversao_png_para_jpg: OperacaoArquivo,
+        conversao_imagem_para_pdf: OperacaoArquivo,
         compactacao_zip: OperacaoArquivo,
     ):
         super().__init__()
@@ -27,6 +28,7 @@ class JanelaPrincipal(ctk.CTk):
         self.servico_operacao = servico_operacao
         self.conversao_jpg_para_png = conversao_jpg_para_png
         self.conversao_png_para_jpg = conversao_png_para_jpg
+        self.conversao_imagem_para_pdf = conversao_imagem_para_pdf
         self.compactacao_zip = compactacao_zip
 
         # Estrutura temporária que futuramente virá do Banco de Dados (SQLite/ORM)
@@ -51,7 +53,6 @@ class JanelaPrincipal(ctk.CTk):
         self.sidebar.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self.sidebar.grid_rowconfigure(5, weight=1)
 
-        # Identidade Visual / Logo
         logo = ctk.CTkLabel(
             self.sidebar,
             text="⚡ SCRAP",
@@ -67,7 +68,6 @@ class JanelaPrincipal(ctk.CTk):
         )
         subtitulo.grid(row=1, column=0, padx=24, pady=(0, 28), sticky="w")
 
-        # Botões de Navegação
         self.botoes_nav: dict[str, ctk.CTkButton] = {}
         itens_menu = [
             ("conversao", "🔄   Conversão"),
@@ -91,7 +91,6 @@ class JanelaPrincipal(ctk.CTk):
             btn.grid(row=idx, column=0, padx=16, pady=5, sticky="ew")
             self.botoes_nav[chave] = btn
 
-        # Seletor de Tema no rodapé da Sidebar
         lbl_tema = ctk.CTkLabel(
             self.sidebar,
             text="Aparência:",
@@ -176,7 +175,12 @@ class JanelaPrincipal(ctk.CTk):
         texto_botao: str,
         comando,
     ):
-        card = ctk.CTkFrame(parent, corner_radius=12, border_width=1, border_color=("gray78", "gray25"))
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            border_width=1,
+            border_color=("gray78", "gray25"),
+        )
         card.grid(row=linha, column=coluna, padx=8, pady=8, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
 
@@ -230,7 +234,6 @@ class JanelaPrincipal(ctk.CTk):
         grade.grid(row=2, column=0, sticky="nsew")
         grade.grid_columnconfigure((0, 1), weight=1)
 
-        # Para adicionar novas conversões no futuro, basta incluir um novo item nesta lista:
         conversoes_disponiveis = [
             (
                 "IMAGEM • JPG → PNG",
@@ -246,11 +249,22 @@ class JanelaPrincipal(ctk.CTk):
                 "Selecionar PNG",
                 self.converter_png,
             ),
+            (
+                "DOCUMENTO • IMG → PDF",
+                "Converter Imagens para PDF",
+                "Gera um documento PDF a partir de uma ou várias imagens (JPG e PNG), criando páginas em sequência.",
+                "Selecionar Imagens",
+                self.converter_imagens_pdf,
+            ),
         ]
 
-        for idx, (badge, titulo, desc, texto_btn, cmd) in enumerate(conversoes_disponiveis):
+        for idx, (badge, titulo, desc, texto_btn, cmd) in enumerate(
+            conversoes_disponiveis
+        ):
             linha, coluna = divmod(idx, 2)
-            self._criar_card_operacao(grade, linha, coluna, badge, titulo, desc, texto_btn, cmd)
+            self._criar_card_operacao(
+                grade, linha, coluna, badge, titulo, desc, texto_btn, cmd
+            )
 
         return frame
 
@@ -288,7 +302,9 @@ class JanelaPrincipal(ctk.CTk):
 
         for idx, (badge, titulo, desc, texto_btn, cmd) in enumerate(opcoes_zip):
             linha, coluna = divmod(idx, 2)
-            self._criar_card_operacao(grade, linha, coluna, badge, titulo, desc, texto_btn, cmd)
+            self._criar_card_operacao(
+                grade, linha, coluna, badge, titulo, desc, texto_btn, cmd
+            )
 
         return frame
 
@@ -342,10 +358,14 @@ class JanelaPrincipal(ctk.CTk):
         self.indicador_status.configure(text_color=cores.get(tipo, cores["neutro"]))
         self.mensagem.configure(text=texto)
 
-    def _registrar_no_historico(self, tipo_operacao: str, origens: tuple[Path, ...], destino: Path):
+    def _registrar_no_historico(
+        self, tipo_operacao: str, origens: tuple[Path, ...], destino: Path
+    ):
         horario = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         resumo_origem = (
-            origens[0].name if len(origens) == 1 else f"{len(origens)} arquivos selecionados"
+            origens[0].name
+            if len(origens) == 1
+            else f"{len(origens)} arquivos selecionados"
         )
         self.registros_historico.insert(
             0,
@@ -442,6 +462,34 @@ class JanelaPrincipal(ctk.CTk):
 
         destino = Path(pasta) / f"{origem.stem}.{formato_destino.lower()}"
         self._executar_operacao(operacao, (origem,), destino, formato_destino)
+
+    def converter_imagens_pdf(self):
+        self._definir_status("Selecionando imagens para gerar o PDF...", "neutro")
+        arquivos = filedialog.askopenfilenames(
+            parent=self,
+            title="Selecionar imagens para converter em PDF",
+            filetypes=[("Imagens suportadas", ("*.jpg", "*.jpeg", "*.png"))],
+        )
+        if not arquivos:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origens = tuple(Path(arquivo) for arquivo in arquivos)
+        pasta = filedialog.askdirectory(
+            parent=self,
+            title="Escolher pasta para salvar o PDF",
+            initialdir=str(origens[0].parent),
+            mustexist=True,
+        )
+        if not pasta:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        nome_pdf = (
+            f"{origens[0].stem}.pdf" if len(origens) == 1 else "imagens_convertidas.pdf"
+        )
+        destino = Path(pasta) / nome_pdf
+        self._executar_operacao(self.conversao_imagem_para_pdf, origens, destino, "PDF")
 
     def compactar_arquivos_zip(self):
         self._definir_status("Selecionando arquivos para compactar...", "neutro")
