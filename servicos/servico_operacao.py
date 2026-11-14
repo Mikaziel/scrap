@@ -17,8 +17,15 @@ class ServicoOperacao:
         *,
         sobrescrever: bool = False,
     ) -> Path:
-        if any(origem.resolve() == destino.resolve() for origem in origens):
-            raise ValueError("Selecione um destino diferente do arquivo de origem.")
+        destino_resolvido = destino.resolve()
+        for origem in origens:
+            origem_resolvida = origem.resolve()
+            if origem_resolvida == destino_resolvido:
+                raise ValueError("Selecione um destino diferente do arquivo de origem.")
+            if origem_resolvida in destino_resolvido.parents:
+                raise ValueError(
+                    "Selecione um destino fora da pasta que está sendo compactada."
+                )
 
         if destino.is_dir():
             raise ValueError("Escolha um nome de arquivo para salvar o resultado.")

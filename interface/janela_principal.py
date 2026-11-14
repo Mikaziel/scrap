@@ -13,6 +13,7 @@ class JanelaPrincipal(ctk.CTk):
         servico_operacao: ServicoOperacao,
         conversao_jpg_para_png: OperacaoArquivo,
         conversao_png_para_jpg: OperacaoArquivo,
+        compactacao_zip: OperacaoArquivo,
     ):
         super().__init__()
         self.title("SCRAP")
@@ -21,6 +22,7 @@ class JanelaPrincipal(ctk.CTk):
         self.servico_operacao = servico_operacao
         self.conversao_jpg_para_png = conversao_jpg_para_png
         self.conversao_png_para_jpg = conversao_png_para_jpg
+        self.compactacao_zip = compactacao_zip
 
         ctk.CTkButton(
             self, text="Converter JPG → PNG", command=self.converter_jpg
@@ -28,6 +30,13 @@ class JanelaPrincipal(ctk.CTk):
         ctk.CTkButton(
             self, text="Converter PNG → JPG", command=self.converter_png
         ).pack(pady=8)
+        ctk.CTkButton(
+            self, text="Compactar Arquivos em ZIP", command=self.compactar_arquivos_zip
+        ).pack(pady=8)
+        ctk.CTkButton(
+            self, text="Compactar Pasta em ZIP", command=self.compactar_pasta_zip
+        ).pack(pady=8)
+
         self.mensagem = ctk.CTkLabel(self, text="", wraplength=660)
         self.mensagem.pack(padx=24, pady=12)
 
@@ -66,10 +75,60 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         destino = Path(pasta) / f"{origem.stem}.{formato_destino.lower()}"
+        self._executar_operacao(operacao, (origem,), destino, formato_destino)
 
+    def compactar_arquivos_zip(self):
+        self.mensagem.configure(text="")
+        arquivos = filedialog.askopenfilenames(
+            parent=self,
+            title="Selecionar arquivos para compactar",
+        )
+        if not arquivos:
+            return
+
+        origens = tuple(Path(arquivo) for arquivo in arquivos)
+        nome_zip = f"{origens[0].stem}.zip" if len(origens) == 1 else "arquivos.zip"
+        self._escolher_destino_e_compactar(origens, origens[0].parent, nome_zip)
+
+    def compactar_pasta_zip(self):
+        self.mensagem.configure(text="")
+        pasta_origem = filedialog.askdirectory(
+            parent=self,
+            title="Selecionar pasta para compactar",
+            mustexist=True,
+        )
+        if not pasta_origem:
+            return
+
+        origem = Path(pasta_origem)
+        nome_zip = f"{origem.name}.zip"
+        self._escolher_destino_e_compactar((origem,), origem.parent, nome_zip)
+
+    def _escolher_destino_e_compactar(
+        self, origens: tuple[Path, ...], pasta_inicial: Path, nome_sugerido: str
+    ):
+        pasta_destino = filedialog.askdirectory(
+            parent=self,
+            title="Escolher pasta para salvar o ZIP",
+            initialdir=str(pasta_inicial),
+            mustexist=True,
+        )
+        if not pasta_destino:
+            return
+
+        destino = Path(pasta_destino) / nome_sugerido
+        self._executar_operacao(self.compactacao_zip, origens, destino, "ZIP")
+
+    def _executar_operacao(
+        self,
+        operacao: OperacaoArquivo,
+        origens: tuple[Path, ...],
+        destino: Path,
+        formato_destino: str,
+    ):
         try:
             try:
-                resultado = self.servico_operacao.executar(operacao, (origem,), destino)
+                resultado = self.servico_operacao.executar(operacao, origens, destino)
             except DestinoExistenteError:
                 if not messagebox.askyesno(
                     "Substituir arquivo",
@@ -78,7 +137,7 @@ class JanelaPrincipal(ctk.CTk):
                 ):
                     return
                 resultado = self.servico_operacao.executar(
-                    operacao, (origem,), destino, sobrescrever=True
+                    operacao, origens, destino, sobrescrever=True
                 )
         except ValueError as erro:
             self.mensagem.configure(text=str(erro))
