@@ -18,6 +18,7 @@ class JanelaPrincipal(ctk.CTk):
         conversao_jpg_para_png: OperacaoArquivo,
         conversao_png_para_jpg: OperacaoArquivo,
         conversao_imagem_para_pdf: OperacaoArquivo,
+        conversao_docx_para_pdf: OperacaoArquivo,
         compactacao_zip: OperacaoArquivo,
     ):
         super().__init__()
@@ -29,6 +30,7 @@ class JanelaPrincipal(ctk.CTk):
         self.conversao_jpg_para_png = conversao_jpg_para_png
         self.conversao_png_para_jpg = conversao_png_para_jpg
         self.conversao_imagem_para_pdf = conversao_imagem_para_pdf
+        self.conversao_docx_para_pdf = conversao_docx_para_pdf
         self.compactacao_zip = compactacao_zip
 
         # Estrutura temporária que futuramente virá do Banco de Dados (SQLite/ORM)
@@ -256,6 +258,13 @@ class JanelaPrincipal(ctk.CTk):
                 "Selecionar Imagens",
                 self.converter_imagens_pdf,
             ),
+            (
+                "DOCUMENTO • DOCX → PDF",
+                "Converter DOCX para PDF",
+                "Transforma documentos do Word (.docx) em arquivos PDF prontos para leitura e impressão.",
+                "Selecionar DOCX",
+                self.converter_docx_pdf,
+            ),
         ]
 
         for idx, (badge, titulo, desc, texto_btn, cmd) in enumerate(
@@ -431,6 +440,31 @@ class JanelaPrincipal(ctk.CTk):
 
     def converter_png(self):
         self.converter_imagem(self.conversao_png_para_jpg, "PNG", "JPG", ("*.png",))
+
+    def converter_docx_pdf(self):
+        self._definir_status("Selecionando documento DOCX...", "neutro")
+        arquivo = filedialog.askopenfilename(
+            parent=self,
+            title="Selecionar documento DOCX",
+            filetypes=[("Documento do Word", ("*.docx",))],
+        )
+        if not arquivo:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origem = Path(arquivo)
+        pasta = filedialog.askdirectory(
+            parent=self,
+            title="Escolher pasta para salvar o PDF",
+            initialdir=str(origem.parent),
+            mustexist=True,
+        )
+        if not pasta:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        destino = Path(pasta) / f"{origem.stem}.pdf"
+        self._executar_operacao(self.conversao_docx_para_pdf, (origem,), destino, "PDF")
 
     def converter_imagem(
         self,
