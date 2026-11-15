@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from sys import platform
+from tkinter import Canvas, Listbox, filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -235,6 +236,7 @@ class JanelaPrincipal(ctk.CTk):
         grade = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         grade.grid(row=2, column=0, sticky="nsew")
         grade.grid_columnconfigure((0, 1), weight=1)
+        self._habilitar_trackpad_conversao(grade)
 
         conversoes_disponiveis = [
             (
@@ -276,6 +278,33 @@ class JanelaPrincipal(ctk.CTk):
             )
 
         return frame
+
+    def _habilitar_trackpad_conversao(self, grade: ctk.CTkScrollableFrame) -> None:
+        if platform != "darwin" or not self.tk.call(
+            "info", "commands", "::tk::PreciseScrollDeltas"
+        ):
+            return
+
+        canvas = grade.master
+        if not isinstance(canvas, Canvas):
+            return
+
+        def rolar(evento):
+            widget = evento.widget
+            while widget is not canvas:
+                widget = getattr(widget, "master", None)
+                if widget is None:
+                    return
+
+            _, delta_y = self.tk.splitlist(
+                self.tk.call("::tk::PreciseScrollDeltas", evento.delta)
+            )
+            delta_y = int(delta_y)
+            if delta_y:
+                canvas.yview_scroll(-delta_y, "units")
+                return "break"
+
+        self.bind("<TouchpadScroll>", rolar, add="+")
 
     def _criar_secao_compactacao(self) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(self.container, fg_color="transparent")
@@ -509,10 +538,16 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origens = tuple(Path(arquivo) for arquivo in arquivos)
+        self._definir_status("Aguardando confirmação da ordem das páginas...", "neutro")
+        origens_ordenadas = self._ordenar_imagens_pdf(origens)
+        if origens_ordenadas is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
         pasta = filedialog.askdirectory(
             parent=self,
             title="Escolher pasta para salvar o PDF",
-            initialdir=str(origens[0].parent),
+            initialdir=str(origens_ordenadas[0].parent),
             mustexist=True,
         )
         if not pasta:
@@ -520,10 +555,110 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         nome_pdf = (
-            f"{origens[0].stem}.pdf" if len(origens) == 1 else "imagens_convertidas.pdf"
+            f"{origens_ordenadas[0].stem}.pdf"
+            if len(origens_ordenadas) == 1
+            else "imagens_convertidas.pdf"
         )
         destino = Path(pasta) / nome_pdf
-        self._executar_operacao(self.conversao_imagem_para_pdf, origens, destino, "PDF")
+        self._executar_operacao(
+            self.conversao_imagem_para_pdf, origens_ordenadas, destino, "PDF"
+        )
+
+    def _ordenar_imagens_pdf(self, origens: tuple[Path, ...]) -> tuple[Path, ...] | None:
+        dialogo = ctk.CTkToplevel(self)
+        dialogo.title("Ordem das páginas do PDF")
+        dialogo.geometry("540x360")
+        dialogo.minsize(460, 270)
+        dialogo.transient(self)
+
+        ordem = list(origens)
+        ordem_confirmada = None
+
+        def confirmar():
+            nonlocal ordem_confirmada
+            ordem_confirmada = tuple(ordem)
+            dialogo.destroy()
+
+        ctk.CTkLabel(
+            dialogo,
+            text="Selecione uma imagem e use Subir ou Descer para mudar a ordem.",
+            justify="left",
+            wraplength=400,
+        ).pack(anchor="w", padx=20, pady=(16, 8))
+
+        botoes = ctk.CTkFrame(dialogo, fg_color="transparent")
+        botoes.pack(side="bottom", fill="x", padx=20, pady=16)
+        ctk.CTkButton(botoes, text="Continuar", width=100, command=confirmar).pack(
+            side="right"
+        )
+        ctk.CTkButton(botoes, text="Cancelar", width=100, command=dialogo.destroy).pack(
+            side="right", padx=(0, 8)
+        )
+
+        quadro = ctk.CTkFrame(dialogo)
+        quadro.pack(fill="both", expand=True, padx=20)
+        tema_escuro = ctk.get_appearance_mode() == "Dark"
+        lista = Listbox(
+            quadro,
+            selectmode="browse",
+            exportselection=False,
+            background="#292929" if tema_escuro else "#f2f2f2",
+            foreground="#f2f2f2" if tema_escuro else "#202020",
+            selectbackground="#245c9c",
+            selectforeground="white",
+            highlightthickness=0,
+            borderwidth=0,
+            activestyle="none",
+        )
+        barra = ctk.CTkScrollbar(quadro, orientation="vertical", command=lista.yview)
+        barra.pack(side="right", fill="y", padx=(0, 6), pady=6)
+        lista.configure(yscrollcommand=barra.set)
+        lista.pack(side="left", fill="both", expand=True, padx=6, pady=6)
+
+        def atualizar_botoes(_evento=None):
+            selecao = lista.curselection()
+            subir = selecao and selecao[0] > 0
+            descer = selecao and selecao[0] < len(ordem) - 1
+            botao_subir.configure(state="normal" if subir else "disabled")
+            botao_descer.configure(state="normal" if descer else "disabled")
+
+        def exibir_ordem(indice_selecionado):
+            lista.delete(0, "end")
+            for pagina, imagem in enumerate(ordem, start=1):
+                lista.insert("end", f"{pagina}. {imagem.name}")
+            lista.selection_set(indice_selecionado)
+            lista.activate(indice_selecionado)
+            lista.see(indice_selecionado)
+            atualizar_botoes()
+
+        def mover(deslocamento):
+            selecao = lista.curselection()
+            if not selecao:
+                return
+            atual = selecao[0]
+            novo = atual + deslocamento
+            if 0 <= novo < len(ordem):
+                ordem[atual], ordem[novo] = ordem[novo], ordem[atual]
+                exibir_ordem(novo)
+
+        botao_subir = ctk.CTkButton(
+            botoes, text="Subir", width=80, command=lambda: mover(-1)
+        )
+        botao_subir.pack(side="left", padx=(0, 8))
+        botao_descer = ctk.CTkButton(
+            botoes, text="Descer", width=80, command=lambda: mover(1)
+        )
+        botao_descer.pack(side="left")
+        lista.bind("<<ListboxSelect>>", atualizar_botoes)
+        exibir_ordem(0)
+
+        dialogo.protocol("WM_DELETE_WINDOW", dialogo.destroy)
+        dialogo.bind("<Escape>", lambda evento: dialogo.destroy())
+        dialogo.wait_visibility()
+        dialogo.grab_set()
+        lista.focus_set()
+        self.wait_window(dialogo)
+        return ordem_confirmada
 
     def compactar_arquivos_zip(self):
         self._definir_status("Selecionando arquivos para compactar...", "neutro")
