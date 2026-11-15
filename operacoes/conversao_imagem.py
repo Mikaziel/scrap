@@ -3,6 +3,7 @@ from typing import Literal
 
 from PIL import Image, ImageOps
 
+from operacoes.cancelamento import CancelamentoOperacao
 from operacoes.operacao_arquivo import OperacaoArquivo
 
 
@@ -10,7 +11,15 @@ class ConversaoImagem(OperacaoArquivo):
     def __init__(self, formato_destino: Literal["PNG", "JPEG"] = "PNG"):
         self.formato_destino = formato_destino
 
-    def executar(self, origens: tuple[Path, ...], destino: Path) -> None:
+    def executar(
+        self,
+        origens: tuple[Path, ...],
+        destino: Path,
+        *,
+        cancelamento: CancelamentoOperacao | None = None,
+    ) -> None:
+        cancelamento = cancelamento or CancelamentoOperacao()
+        cancelamento.verificar()
         formato_origem = "PNG" if self.formato_destino == "JPEG" else "JPEG"
         nome_origem = "PNG" if formato_origem == "PNG" else "JPG"
         if len(origens) != 1:
@@ -24,6 +33,7 @@ class ConversaoImagem(OperacaoArquivo):
                 f"Não foi possível ler a imagem. Escolha um {nome_origem} válido."
             ) from erro
 
+        cancelamento.verificar()
         if self.formato_destino == "JPEG" and imagem.has_transparency_data:
             imagem_rgba = imagem.convert("RGBA")
             fundo_branco = Image.new("RGB", imagem_rgba.size, "white")
@@ -32,4 +42,5 @@ class ConversaoImagem(OperacaoArquivo):
         elif imagem.mode not in ("L", "RGB"):
             imagem = imagem.convert("RGB")
 
+        cancelamento.verificar()
         imagem.save(destino, format=self.formato_destino)

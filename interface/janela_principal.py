@@ -1,3 +1,4 @@
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from sys import platform
@@ -5,6 +6,7 @@ from tkinter import Canvas, Listbox, filedialog, messagebox
 
 import customtkinter as ctk
 
+from operacoes.cancelamento import CancelamentoOperacao, OperacaoCancelada
 from operacoes.operacao_arquivo import OperacaoArquivo
 from servicos.servico_operacao import DestinoExistenteError, ServicoOperacao
 
@@ -33,6 +35,12 @@ class JanelaPrincipal(ctk.CTk):
         self.conversao_imagem_para_pdf = conversao_imagem_para_pdf
         self.conversao_docx_para_pdf = conversao_docx_para_pdf
         self.compactacao_zip = compactacao_zip
+
+        self._executor_operacoes = ThreadPoolExecutor(max_workers=1)
+        self._operacao_em_andamento = False
+        self._cancelamento_operacao: CancelamentoOperacao | None = None
+        self._consulta_operacao: str | None = None
+        self._botoes_operacao: list[ctk.CTkButton] = []
 
         # Estrutura temporária que futuramente virá do Banco de Dados (SQLite/ORM)
         self.registros_historico: list[dict[str, str]] = []
@@ -145,7 +153,23 @@ class JanelaPrincipal(ctk.CTk):
             justify="left",
             wraplength=640,
         )
-        self.mensagem.grid(row=0, column=1, padx=(0, 16), pady=12, sticky="ew")
+        self.mensagem.grid(
+            row=0, column=1, columnspan=2, padx=(0, 16), pady=12, sticky="ew"
+        )
+
+        self.progresso_operacao = ctk.CTkProgressBar(
+            self.barra_status, mode="indeterminate", height=5
+        )
+        self.progresso_operacao.grid(
+            row=1, column=0, columnspan=2, padx=(16, 12), pady=(0, 12), sticky="ew"
+        )
+        self.progresso_operacao.grid_remove()
+
+        self.botao_cancelar_operacao = ctk.CTkButton(
+            self.barra_status, text="Cancelar operação", command=self._cancelar_operacao
+        )
+        self.botao_cancelar_operacao.grid(row=1, column=2, padx=(0, 16), pady=(0, 12))
+        self.botao_cancelar_operacao.grid_remove()
 
     # =========================================================================
     # SEÇÕES E COMPONENTES REUTILIZÁVEIS (CARDS)
@@ -213,14 +237,16 @@ class JanelaPrincipal(ctk.CTk):
             wraplength=270,
         ).grid(row=2, column=0, padx=20, pady=(0, 18), sticky="w")
 
-        ctk.CTkButton(
+        botao = ctk.CTkButton(
             card,
             text=texto_botao,
             height=38,
             corner_radius=8,
             font=ctk.CTkFont(size=13, weight="bold"),
             command=comando,
-        ).grid(row=3, column=0, padx=20, pady=(0, 18), sticky="ew")
+        )
+        botao.grid(row=3, column=0, padx=20, pady=(0, 18), sticky="ew")
+        self._botoes_operacao.append(botao)
 
     def _criar_secao_conversao(self) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(self.container, fg_color="transparent")
@@ -712,20 +738,93 @@ class JanelaPrincipal(ctk.CTk):
         destino: Path,
         formato_destino: str,
     ):
+        if self._operacao_em_andamento:
+            return
+
+        self._operacao_em_andamento = True
+        for botao in self._botoes_operacao:
+            botao.configure(state="disabled")
+        self._iniciar_operacao(operacao, origens, destino, formato_destino)
+
+    def _iniciar_operacao(
+        self,
+        operacao: OperacaoArquivo,
+        origens: tuple[Path, ...],
+        destino: Path,
+        formato_destino: str,
+        *,
+        sobrescrever: bool = False,
+    ):
+        cancelamento = CancelamentoOperacao()
+        self._cancelamento_operacao = cancelamento
+        mensagem = (
+            "Compactando em ZIP…"
+            if formato_destino == "ZIP"
+            else f"Convertendo para {formato_destino}…"
+        )
+        self._definir_status(mensagem)
+        self.progresso_operacao.grid()
+        self.progresso_operacao.start()
+        self.botao_cancelar_operacao.configure(state="normal")
+        self.botao_cancelar_operacao.grid()
+
+        tarefa = self._executor_operacoes.submit(
+            self.servico_operacao.executar,
+            operacao,
+            origens,
+            destino,
+            sobrescrever=sobrescrever,
+            cancelamento=cancelamento,
+        )
+        self._consulta_operacao = self.after(
+            50, self._acompanhar_operacao, tarefa, operacao, origens, destino, formato_destino
+        )
+
+    def _cancelar_operacao(self):
+        if self._cancelamento_operacao is not None and self._cancelamento_operacao.solicitar():
+            self.botao_cancelar_operacao.configure(state="disabled")
+            self._definir_status("Cancelando operação…")
+
+    def _acompanhar_operacao(
+        self,
+        tarefa: Future[Path],
+        operacao: OperacaoArquivo,
+        origens: tuple[Path, ...],
+        destino: Path,
+        formato_destino: str,
+    ):
+        if not tarefa.done():
+            self._consulta_operacao = self.after(
+                50, self._acompanhar_operacao, tarefa, operacao, origens, destino, formato_destino
+            )
+            return
+
+        self._consulta_operacao = None
+        cancelamento = self._cancelamento_operacao
+        self._cancelamento_operacao = None
+        self.progresso_operacao.stop()
+        self.progresso_operacao.grid_remove()
+        self.botao_cancelar_operacao.grid_remove()
+
         try:
-            try:
-                resultado = self.servico_operacao.executar(operacao, origens, destino)
-            except DestinoExistenteError:
-                if not messagebox.askyesno(
-                    "Substituir arquivo",
-                    f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
-                    parent=self,
-                ):
-                    self._definir_status("Operação cancelada pelo usuário.", "neutro")
-                    return
-                resultado = self.servico_operacao.executar(
-                    operacao, origens, destino, sobrescrever=True
+            resultado = tarefa.result()
+        except OperacaoCancelada:
+            self._definir_status("Operação cancelada pelo usuário.", "neutro")
+        except DestinoExistenteError:
+            if cancelamento is not None and cancelamento.solicitado:
+                self._definir_status("Operação cancelada pelo usuário.", "neutro")
+                return
+            self._definir_status("Aguardando confirmação de substituição…")
+            if messagebox.askyesno(
+                "Substituir arquivo",
+                f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
+                parent=self,
+            ):
+                self._iniciar_operacao(
+                    operacao, origens, destino, formato_destino, sobrescrever=True
                 )
+                return
+            self._definir_status("Operação cancelada pelo usuário.", "neutro")
         except ValueError as erro:
             self._definir_status(str(erro), "erro")
         except OSError:
@@ -733,6 +832,21 @@ class JanelaPrincipal(ctk.CTk):
                 f"Não foi possível salvar o {formato_destino} no destino escolhido.",
                 "erro",
             )
+        except Exception as erro:
+            self._definir_status("Não foi possível concluir a operação.", "erro")
+            self.report_callback_exception(type(erro), erro, erro.__traceback__)
         else:
             self._definir_status(f"{formato_destino} salvo em {resultado}", "sucesso")
             self._registrar_no_historico(formato_destino, origens, resultado)
+        finally:
+            if self._consulta_operacao is None:
+                self._operacao_em_andamento = False
+                for botao in self._botoes_operacao:
+                    botao.configure(state="normal")
+
+    def destroy(self):
+        if self._consulta_operacao is not None:
+            self.after_cancel(self._consulta_operacao)
+        self.progresso_operacao.stop()
+        self._executor_operacoes.shutdown(wait=False)
+        super().destroy()

@@ -2,11 +2,19 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from operacoes.cancelamento import CancelamentoOperacao
 from operacoes.operacao_arquivo import OperacaoArquivo
 
 
 class ConversaoImagemParaPdf(OperacaoArquivo):
-    def executar(self, origens: tuple[Path, ...], destino: Path) -> None:
+    def executar(
+        self,
+        origens: tuple[Path, ...],
+        destino: Path,
+        *,
+        cancelamento: CancelamentoOperacao | None = None,
+    ) -> None:
+        cancelamento = cancelamento or CancelamentoOperacao()
         if not origens:
             raise ValueError("Selecione pelo menos uma imagem para converter em PDF.")
 
@@ -14,6 +22,7 @@ class ConversaoImagemParaPdf(OperacaoArquivo):
 
         try:
             for origem in origens:
+                cancelamento.verificar()
                 try:
                     with Image.open(origem, formats=("JPEG", "PNG")) as original:
                         imagem = ImageOps.exif_transpose(original)
@@ -35,6 +44,7 @@ class ConversaoImagemParaPdf(OperacaoArquivo):
                         f"Não foi possível ler a imagem '{origem.name}'. Escolha arquivos JPG ou PNG válidos."
                     ) from erro
 
+            cancelamento.verificar()
             primeira_pagina, *paginas_extras = imagens_processadas
             primeira_pagina.save(
                 destino,

@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from operacoes.cancelamento import CancelamentoOperacao
 from operacoes.operacao_arquivo import OperacaoArquivo
 
 
@@ -16,7 +17,11 @@ class ServicoOperacao:
         destino: Path,
         *,
         sobrescrever: bool = False,
+        cancelamento: CancelamentoOperacao | None = None,
     ) -> Path:
+        if cancelamento is not None:
+            cancelamento.verificar()
+
         destino_resolvido = destino.resolve()
         for origem in origens:
             origem_resolvida = origem.resolve()
@@ -35,7 +40,15 @@ class ServicoOperacao:
 
         with TemporaryDirectory(dir=destino.parent) as pasta_temporaria:
             arquivo_temporario = Path(pasta_temporaria) / destino.name
-            operacao.executar(origens, arquivo_temporario)
+            if cancelamento is None:
+                operacao.executar(origens, arquivo_temporario)
+            else:
+                try:
+                    operacao.executar(origens, arquivo_temporario, cancelamento=cancelamento)
+                except (ValueError, OSError):
+                    cancelamento.verificar()
+                    raise
+                cancelamento.iniciar_publicacao()
 
             if not sobrescrever:
                 try:
