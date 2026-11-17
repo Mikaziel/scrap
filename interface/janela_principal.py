@@ -1,7 +1,7 @@
 from pathlib import Path
 from sys import platform
 from threading import Thread
-from tkinter import Canvas, filedialog, messagebox
+from tkinter import Canvas, Listbox, filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -437,7 +437,7 @@ class JanelaPrincipal(ctk.CTk):
             (
                 "PDF  |  UNIFICAR ARQUIVOS",
                 "Mesclar PDFs",
-                "Une 2 ou mais arquivos PDF em um único documento contínuo mantendo a ordem selecionada.",
+                "Une dois ou mais PDFs em um documento. Você pode ajustar a ordem antes de salvar.",
                 "Selecionar PDFs",
                 self.mesclar_arquivos_pdf,
             ),
@@ -966,10 +966,16 @@ class JanelaPrincipal(ctk.CTk):
             )
             return
 
+        self._definir_status("Aguardando confirmação da ordem dos PDFs...", "neutro")
+        origens_ordenadas = self._ordenar_pdfs(origens)
+        if origens_ordenadas is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
         destino = self._solicitar_destino_salvar(
             titulo="Salvar PDF mesclado como",
-            pasta_inicial=origens[0].parent,
-            nome_sugerido=f"{origens[0].stem}-mesclado.pdf",
+            pasta_inicial=origens_ordenadas[0].parent,
+            nome_sugerido=f"{origens_ordenadas[0].stem}-mesclado.pdf",
             formato_destino="PDF",
             extensao_padrao=".pdf",
         )
@@ -977,7 +983,105 @@ class JanelaPrincipal(ctk.CTk):
             self._definir_status("Operação cancelada.", "neutro")
             return
 
-        self._executar_operacao(self.mesclar_pdf, origens, destino, "PDF MESCLADO")
+        self._executar_operacao(
+            self.mesclar_pdf, origens_ordenadas, destino, "PDF MESCLADO"
+        )
+
+    def _ordenar_pdfs(self, origens: tuple[Path, ...]) -> tuple[Path, ...] | None:
+        dialogo = ctk.CTkToplevel(self)
+        dialogo.title("Ordem da mesclagem")
+        dialogo.geometry("540x360")
+        dialogo.minsize(460, 270)
+        dialogo.transient(self)
+
+        ordem = list(origens)
+        ordem_confirmada = None
+
+        def confirmar():
+            nonlocal ordem_confirmada
+            ordem_confirmada = tuple(ordem)
+            dialogo.destroy()
+
+        ctk.CTkLabel(
+            dialogo,
+            text="Selecione um PDF e use Subir ou Descer para mudar a ordem.",
+            justify="left",
+            wraplength=400,
+        ).pack(anchor="w", padx=20, pady=(16, 8))
+
+        botoes = ctk.CTkFrame(dialogo, fg_color="transparent")
+        botoes.pack(side="bottom", fill="x", padx=20, pady=16)
+        ctk.CTkButton(botoes, text="Continuar", width=100, command=confirmar).pack(
+            side="right"
+        )
+        ctk.CTkButton(botoes, text="Cancelar", width=100, command=dialogo.destroy).pack(
+            side="right", padx=(0, 8)
+        )
+
+        quadro = ctk.CTkFrame(dialogo)
+        quadro.pack(fill="both", expand=True, padx=20)
+        tema_escuro = ctk.get_appearance_mode() == "Dark"
+        lista = Listbox(
+            quadro,
+            selectmode="browse",
+            exportselection=False,
+            background="#292929" if tema_escuro else "#f2f2f2",
+            foreground="#f2f2f2" if tema_escuro else "#202020",
+            selectbackground="#245c9c",
+            selectforeground="white",
+            highlightthickness=0,
+            borderwidth=0,
+            activestyle="none",
+        )
+        barra = ctk.CTkScrollbar(quadro, orientation="vertical", command=lista.yview)
+        barra.pack(side="right", fill="y", padx=(0, 6), pady=6)
+        lista.configure(yscrollcommand=barra.set)
+        lista.pack(side="left", fill="both", expand=True, padx=6, pady=6)
+
+        def atualizar_botoes(_evento=None):
+            selecao = lista.curselection()
+            subir = selecao and selecao[0] > 0
+            descer = selecao and selecao[0] < len(ordem) - 1
+            botao_subir.configure(state="normal" if subir else "disabled")
+            botao_descer.configure(state="normal" if descer else "disabled")
+
+        def exibir_ordem(indice_selecionado):
+            lista.delete(0, "end")
+            for posicao, arquivo in enumerate(ordem, start=1):
+                lista.insert("end", f"{posicao}. {arquivo.name}")
+            lista.selection_set(indice_selecionado)
+            lista.activate(indice_selecionado)
+            lista.see(indice_selecionado)
+            atualizar_botoes()
+
+        def mover(deslocamento):
+            selecao = lista.curselection()
+            if not selecao:
+                return
+            atual = selecao[0]
+            novo = atual + deslocamento
+            if 0 <= novo < len(ordem):
+                ordem[atual], ordem[novo] = ordem[novo], ordem[atual]
+                exibir_ordem(novo)
+
+        botao_subir = ctk.CTkButton(
+            botoes, text="Subir", width=80, command=lambda: mover(-1)
+        )
+        botao_subir.pack(side="left", padx=(0, 8))
+        botao_descer = ctk.CTkButton(
+            botoes, text="Descer", width=80, command=lambda: mover(1)
+        )
+        botao_descer.pack(side="left")
+        lista.bind("<<ListboxSelect>>", atualizar_botoes)
+        exibir_ordem(0)
+
+        dialogo.protocol("WM_DELETE_WINDOW", dialogo.destroy)
+        dialogo.bind("<Escape>", lambda evento: dialogo.destroy())
+        dialogo.wait_visibility()
+        dialogo.grab_set()
+        lista.focus_set()
+        self.wait_window(dialogo)
+        return ordem_confirmada
 
     def dividir_arquivo_pdf(self):
         if self._thread_operacao is not None and self._thread_operacao.is_alive():
