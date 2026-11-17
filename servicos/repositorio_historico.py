@@ -7,7 +7,8 @@ from tempfile import TemporaryDirectory
 from servicos.servico_operacao import DestinoExistenteError
 
 DIAS_RETENCAO = 30
-CAMINHO_BANCO_PADRAO = Path(__file__).resolve().parent.parent / "db/historico_scrap.db"
+CAMINHO_BANCO_PADRAO = Path(__file__).resolve().parent.parent / "historico_scrap.db"
+
 
 @dataclass(frozen=True)
 class RegistroHistorico:
@@ -17,6 +18,11 @@ class RegistroHistorico:
     nome_arquivo: str
     destino_original: str
     criado_em: str
+    tamanho_bytes: int
+
+    @property
+    def tamanho_formatado(self) -> str:
+        return RepositorioHistorico.formatar_tamanho(self.tamanho_bytes)
 
 
 class RepositorioHistorico:
@@ -53,6 +59,17 @@ class RepositorioHistorico:
                 """
             )
 
+    @staticmethod
+    def formatar_tamanho(num_bytes: int) -> str:
+        tamanho = float(max(0, num_bytes))
+        for unidade in ("B", "KB", "MB", "GB"):
+            if tamanho < 1024.0 or unidade == "GB":
+                if unidade == "B":
+                    return f"{int(tamanho)} B"
+                return f"{tamanho:.1f} {unidade}"
+            tamanho /= 1024.0
+        return "0 B"
+
     def limpar_expirados(self) -> int:
         limite = datetime.now(timezone.utc) - timedelta(days=self.dias_retencao)
         limite_iso = limite.isoformat()
@@ -61,7 +78,18 @@ class RepositorioHistorico:
                 "DELETE FROM historico_operacoes WHERE criado_em_utc < ?",
                 (limite_iso,),
             )
-            return cursor.rowcount
+            removidos = cursor.rowcount
+
+        if removidos > 0:
+            self._compactar_banco()
+        return removidos
+
+    def _compactar_banco(self) -> None:
+        try:
+            with sqlite3.connect(self.caminho_banco, isolation_level=None) as conexao:
+                conexao.execute("VACUUM")
+        except sqlite3.Error:
+            pass
 
     def registrar(
         self,
@@ -116,7 +144,8 @@ class RepositorioHistorico:
                     resumo_origem,
                     nome_arquivo,
                     destino_original,
-                    criado_em_exibicao
+                    criado_em_exibicao,
+                    LENGTH(conteudo) AS tamanho_bytes
                 FROM historico_operacoes
                 ORDER BY id DESC
                 """
@@ -130,9 +159,31 @@ class RepositorioHistorico:
                 nome_arquivo=linha["nome_arquivo"],
                 destino_original=linha["destino_original"],
                 criado_em=linha["criado_em_exibicao"],
+                tamanho_bytes=int(linha["tamanho_bytes"] or 0),
             )
             for linha in linhas
         ]
+
+    def excluir_registro(self, registro_id: int) -> bool:
+        with self._conectar() as conexao:
+            cursor = conexao.execute(
+                "DELETE FROM historico_operacoes WHERE id = ?",
+                (registro_id,),
+            )
+            excluiu = cursor.rowcount > 0
+
+        if excluiu:
+            self._compactar_banco()
+        return excluiu
+
+    def limpar_tudo(self) -> int:
+        with self._conectar() as conexao:
+            cursor = conexao.execute("DELETE FROM historico_operacoes")
+            removidos = cursor.rowcount
+
+        if removidos > 0:
+            self._compactar_banco()
+        return removidos
 
     def recuperar_arquivo(
         self,

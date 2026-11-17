@@ -3,7 +3,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
-PASTA_ICONES = Path(__file__).resolve().parent / "icones"
+PASTA_ICONES = Path(__file__).resolve().parent / "icons"
 
 
 def carregar_icones() -> dict[str, ctk.CTkImage]:
@@ -16,6 +16,7 @@ def carregar_icones() -> dict[str, ctk.CTkImage]:
         "historico": ((20, 20), _desenhar_historico, "#1f2937", "#e5e7eb"),
         "recuperar": ((16, 16), _desenhar_recuperar, "#ffffff", "#ffffff"),
         "cancelar": ((14, 14), _desenhar_cancelar, "#ffffff", "#ffffff"),
+        "excluir": ((15, 15), _desenhar_excluir, "#ffffff", "#ffffff"),
     }
 
     icones: dict[str, ctk.CTkImage] = {}
@@ -88,4 +89,17 @@ def _desenhar_cancelar(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
     draw.line([(28, 28), (100, 100)], fill=cor, width=14)
     draw.line([(100, 28), (28, 100)], fill=cor, width=14)
+    return img
+
+
+def _desenhar_excluir(cor: str) -> Image.Image:
+    img, draw = _criar_tela(cor)
+    # Tampa da lixeira e alça
+    draw.line([(24, 30), (104, 30)], fill=cor, width=10)
+    draw.rectangle([(48, 16), (80, 30)], outline=cor, width=8)
+    # Corpo da lixeira
+    draw.rounded_rectangle([(32, 36), (96, 112)], radius=10, outline=cor, width=10)
+    # Linhas verticais internas
+    draw.line([(54, 54), (54, 94)], fill=cor, width=8)
+    draw.line([(74, 54), (74, 94)], fill=cor, width=8)
     return img

@@ -163,7 +163,6 @@ class JanelaPrincipal(ctk.CTk):
         )
         self.mensagem.grid(row=0, column=1, padx=(0, 12), pady=12, sticky="ew")
 
-        # Botão de cancelar (oculto quando não há operação em andamento)
         self.botao_cancelar = ctk.CTkButton(
             self.barra_status,
             text=" Cancelar",
@@ -179,7 +178,6 @@ class JanelaPrincipal(ctk.CTk):
             command=self.cancelar_operacao_atual,
         )
 
-        # Barra de progresso indeterminada (oculta quando ocioso)
         self.barra_progresso = ctk.CTkProgressBar(
             self.barra_status, mode="indeterminate", height=6
         )
@@ -367,7 +365,7 @@ class JanelaPrincipal(ctk.CTk):
     def _criar_secao_historico(self) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(self.container, fg_color="transparent")
         frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(2, weight=1)
+        frame.grid_rowconfigure(3, weight=1)
 
         self._criar_cabecalho_secao(
             frame,
@@ -375,17 +373,48 @@ class JanelaPrincipal(ctk.CTk):
             "Arquivos convertidos ou compactados ficam salvos no banco SQLite local por 30 dias para recuperação rápida.",
         )
 
+        # Barra de controle do histórico (Resumo de espaço + Botão Limpar Tudo)
+        barra_topo = ctk.CTkFrame(
+            frame, corner_radius=10, fg_color=("gray88", "gray17")
+        )
+        barra_topo.grid(row=2, column=0, pady=(0, 12), sticky="ew")
+        barra_topo.grid_columnconfigure(0, weight=1)
+
+        self.lbl_resumo_historico = ctk.CTkLabel(
+            barra_topo,
+            text="0 arquivos salvos  |  Espaço utilizado: 0 B",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w",
+        )
+        self.lbl_resumo_historico.grid(row=0, column=0, padx=16, pady=10, sticky="w")
+
+        self.btn_limpar_historico = ctk.CTkButton(
+            barra_topo,
+            text=" Limpar Histórico",
+            image=self.icones["excluir"],
+            compound="left",
+            width=150,
+            height=32,
+            corner_radius=6,
+            fg_color=("#dc2626", "#b91c1c"),
+            hover_color=("#b91c1c", "#991b1b"),
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.limpar_todo_historico,
+        )
+        self.btn_limpar_historico.grid(row=0, column=1, padx=12, pady=8, sticky="e")
+
         self.lista_historico_ui = ctk.CTkScrollableFrame(
             frame, corner_radius=12, border_width=1, border_color=("gray78", "gray25")
         )
-        self.lista_historico_ui.grid(row=2, column=0, sticky="nsew")
+        self.lista_historico_ui.grid(row=3, column=0, sticky="nsew")
         self.lista_historico_ui.grid_columnconfigure(0, weight=1)
 
         self._atualizar_lista_historico_ui()
         return frame
 
     # =========================================================================
-    # NAVEGAÇÃO, TEMA E HISTÓRICO (SQLITE)
+    # NAVEGAÇÃO, TEMA E GERENCIAMENTO DO HISTÓRICO (SQLITE)
     # =========================================================================
 
     def mostrar_secao(self, chave: str):
@@ -455,6 +484,15 @@ class JanelaPrincipal(ctk.CTk):
             widget.destroy()
 
         registros = self.repositorio_historico.listar()
+        total_bytes = sum(item.tamanho_bytes for item in registros)
+        espaco_str = RepositorioHistorico.formatar_tamanho(total_bytes)
+        qtd = len(registros)
+        sufixo = "arquivo salvo" if qtd == 1 else "arquivos salvos"
+        self.lbl_resumo_historico.configure(
+            text=f"{qtd} {sufixo}  |  Espaço utilizado no banco: {espaco_str}"
+        )
+        self.btn_limpar_historico.configure(state="normal" if registros else "disabled")
+
         if not registros:
             ctk.CTkLabel(
                 self.lista_historico_ui,
@@ -475,7 +513,7 @@ class JanelaPrincipal(ctk.CTk):
                 linha,
                 text=item.operacao,
                 font=ctk.CTkFont(size=12, weight="bold"),
-                width=70,
+                width=64,
                 anchor="w",
             ).grid(row=0, column=0, padx=(14, 8), pady=10, sticky="w")
 
@@ -488,22 +526,69 @@ class JanelaPrincipal(ctk.CTk):
 
             ctk.CTkLabel(
                 linha,
-                text=item.criado_em,
+                text=f"{item.tamanho_formatado}  |  {item.criado_em}",
                 font=ctk.CTkFont(size=11),
                 text_color=("gray40", "gray60"),
-            ).grid(row=0, column=2, padx=12, pady=10, sticky="e")
+            ).grid(row=0, column=2, padx=10, pady=10, sticky="e")
 
             ctk.CTkButton(
                 linha,
                 text=" Recuperar",
                 image=self.icones["recuperar"],
                 compound="left",
-                width=115,
+                width=110,
                 height=30,
                 corner_radius=6,
                 font=ctk.CTkFont(size=12, weight="bold"),
                 command=lambda reg=item: self.recuperar_do_historico(reg),
-            ).grid(row=0, column=3, padx=(4, 14), pady=8, sticky="e")
+            ).grid(row=0, column=3, padx=(4, 6), pady=8, sticky="e")
+
+            ctk.CTkButton(
+                linha,
+                text="",
+                image=self.icones["excluir"],
+                width=34,
+                height=30,
+                corner_radius=6,
+                fg_color=("gray65", "gray30"),
+                hover_color=("#dc2626", "#b91c1c"),
+                command=lambda reg=item: self.excluir_item_historico(reg),
+            ).grid(row=0, column=4, padx=(0, 12), pady=8, sticky="e")
+
+    def excluir_item_historico(self, registro: RegistroHistorico):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        if not messagebox.askyesno(
+            "Excluir registro",
+            f"Deseja remover '{registro.nome_arquivo}' ({registro.tamanho_formatado}) do histórico?",
+            parent=self,
+        ):
+            return
+
+        if self.repositorio_historico.excluir_registro(registro.id):
+            self._atualizar_lista_historico_ui()
+            self._definir_status(
+                f"Registro '{registro.nome_arquivo}' removido do histórico.", "neutro"
+            )
+
+    def limpar_todo_historico(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        if not messagebox.askyesno(
+            "Limpar todo o histórico",
+            "Tem certeza que deseja apagar todos os arquivos salvos no histórico? Esta ação não pode ser desfeita.",
+            parent=self,
+        ):
+            return
+
+        removidos = self.repositorio_historico.limpar_tudo()
+        self._atualizar_lista_historico_ui()
+        self._definir_status(
+            f"Histórico limpo ({removidos} registros removidos e banco otimizado).",
+            "sucesso",
+        )
 
     def recuperar_do_historico(self, registro: RegistroHistorico):
         if self._thread_operacao is not None and self._thread_operacao.is_alive():
@@ -795,7 +880,6 @@ class JanelaPrincipal(ctk.CTk):
         if self._thread_operacao is not None and self._thread_operacao.is_alive():
             return
 
-        # Confirma sobrescrita na thread principal antes de disparar o worker
         if not sobrescrever and (destino.exists() or destino.is_symlink()):
             if not messagebox.askyesno(
                 "Substituir arquivo",
