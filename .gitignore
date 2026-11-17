@@ -218,6 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# OS Files
 .DS_Store
 
 #Docker
@@ -231,3 +233,6 @@ devcontainer.json
 __pycache__
 *.py[cod]
 *$py.class
+
+# Arquivos locais de teste
+/sandbox/
