@@ -1,10 +1,11 @@
 from pathlib import Path
+from threading import Thread
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
 from interface.icones import carregar_icones
-from operacoes.cancelamento import OperacaoCancelada
+from operacoes.cancelamento import CancelamentoOperacao, OperacaoCancelada
 from operacoes.operacao_arquivo import OperacaoArquivo
 from servicos.repositorio_historico import RegistroHistorico, RepositorioHistorico
 from servicos.servico_operacao import DestinoExistenteError, ServicoOperacao
@@ -27,8 +28,8 @@ class JanelaPrincipal(ctk.CTk):
     ):
         super().__init__()
         self.title("SCRAP — Conversão e Compressão de Arquivos")
-        self.geometry("980x620")
-        self.minsize(860, 540)
+        self.geometry("980x640")
+        self.minsize(860, 560)
 
         self.servico_operacao = servico_operacao
         self.conversao_jpg_para_png = conversao_jpg_para_png
@@ -38,6 +39,11 @@ class JanelaPrincipal(ctk.CTk):
         self.conversao_pdf_para_docx = conversao_pdf_para_docx
         self.compactacao_zip = compactacao_zip
         self.repositorio_historico = repositorio_historico or RepositorioHistorico()
+
+        # Controle de execução em background e cancelamento
+        self._cancelamento_atual: CancelamentoOperacao | None = None
+        self._thread_operacao: Thread | None = None
+        self._botoes_operacao: list[ctk.CTkButton] = []
 
         # Carrega (e gera se necessário) os ícones na pasta interface/icones/
         self.icones = carregar_icones()
@@ -133,7 +139,7 @@ class JanelaPrincipal(ctk.CTk):
 
     def _construir_barra_status(self):
         self.barra_status = ctk.CTkFrame(
-            self, height=54, corner_radius=10, fg_color=("gray88", "gray17")
+            self, height=62, corner_radius=10, fg_color=("gray88", "gray17")
         )
         self.barra_status.grid(row=1, column=1, padx=28, pady=(0, 20), sticky="ew")
         self.barra_status.grid_columnconfigure(1, weight=1)
@@ -145,7 +151,7 @@ class JanelaPrincipal(ctk.CTk):
             corner_radius=6,
             fg_color=("gray45", "gray55"),
         )
-        self.indicador_status.grid(row=0, column=0, padx=(18, 10), pady=18)
+        self.indicador_status.grid(row=0, column=0, padx=(18, 10), pady=16)
 
         self.mensagem = ctk.CTkLabel(
             self.barra_status,
@@ -153,9 +159,30 @@ class JanelaPrincipal(ctk.CTk):
             font=ctk.CTkFont(size=13),
             anchor="w",
             justify="left",
-            wraplength=640,
+            wraplength=520,
         )
-        self.mensagem.grid(row=0, column=1, padx=(0, 16), pady=12, sticky="ew")
+        self.mensagem.grid(row=0, column=1, padx=(0, 12), pady=12, sticky="ew")
+
+        # Botão de cancelar (oculto quando não há operação em andamento)
+        self.botao_cancelar = ctk.CTkButton(
+            self.barra_status,
+            text=" Cancelar",
+            image=self.icones["cancelar"],
+            compound="left",
+            width=110,
+            height=32,
+            corner_radius=6,
+            fg_color=("#dc2626", "#b91c1c"),
+            hover_color=("#b91c1c", "#991b1b"),
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.cancelar_operacao_atual,
+        )
+
+        # Barra de progresso indeterminada (oculta quando ocioso)
+        self.barra_progresso = ctk.CTkProgressBar(
+            self.barra_status, mode="indeterminate", height=6
+        )
 
     # =========================================================================
     # SEÇÕES E COMPONENTES REUTILIZÁVEIS (CARDS)
@@ -223,14 +250,16 @@ class JanelaPrincipal(ctk.CTk):
             wraplength=270,
         ).grid(row=2, column=0, padx=20, pady=(0, 18), sticky="w")
 
-        ctk.CTkButton(
+        botao = ctk.CTkButton(
             card,
             text=texto_botao,
             height=38,
             corner_radius=8,
             font=ctk.CTkFont(size=13, weight="bold"),
             command=comando,
-        ).grid(row=3, column=0, padx=20, pady=(0, 18), sticky="ew")
+        )
+        botao.grid(row=3, column=0, padx=20, pady=(0, 18), sticky="ew")
+        self._botoes_operacao.append(botao)
 
     def _criar_secao_conversao(self) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(self.container, fg_color="transparent")
@@ -382,11 +411,35 @@ class JanelaPrincipal(ctk.CTk):
     def _definir_status(self, texto: str, tipo: str = "neutro"):
         cores = {
             "neutro": ("gray45", "gray55"),
+            "processando": ("#2563eb", "#60a5fa"),
             "sucesso": ("#16a34a", "#4ade80"),
             "erro": ("#dc2626", "#f87171"),
         }
         self.indicador_status.configure(fg_color=cores.get(tipo, cores["neutro"]))
         self.mensagem.configure(text=texto)
+
+    def _alternar_estado_ocupado(self, ocupado: bool):
+        estado_botoes = "disabled" if ocupado else "normal"
+        for botao in self._botoes_operacao:
+            botao.configure(state=estado_botoes)
+
+        if ocupado:
+            self.botao_cancelar.configure(state="normal", text=" Cancelar")
+            self.botao_cancelar.grid(row=0, column=2, padx=(4, 16), pady=12, sticky="e")
+            self.barra_progresso.grid(
+                row=1, column=0, columnspan=3, padx=18, pady=(0, 10), sticky="ew"
+            )
+            self.barra_progresso.start()
+        else:
+            self.barra_progresso.stop()
+            self.barra_progresso.grid_forget()
+            self.botao_cancelar.grid_forget()
+
+    def cancelar_operacao_atual(self):
+        if self._cancelamento_atual is not None:
+            if self._cancelamento_atual.solicitar():
+                self.botao_cancelar.configure(state="disabled", text=" Cancelando...")
+                self._definir_status("Cancelando operação...", "neutro")
 
     def _registrar_no_historico(
         self, tipo_operacao: str, origens: tuple[Path, ...], destino: Path
@@ -453,6 +506,9 @@ class JanelaPrincipal(ctk.CTk):
             ).grid(row=0, column=3, padx=(4, 14), pady=8, sticky="e")
 
     def recuperar_do_historico(self, registro: RegistroHistorico):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status(
             f"Escolhendo local e nome para recuperar {registro.nome_arquivo}...",
             "neutro",
@@ -551,6 +607,9 @@ class JanelaPrincipal(ctk.CTk):
         self.converter_imagem(self.conversao_png_para_jpg, "PNG", "JPG", ("*.png",))
 
     def converter_docx_pdf(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status("Selecionando documento DOCX...", "neutro")
         arquivo = filedialog.askopenfilename(
             parent=self,
@@ -576,6 +635,9 @@ class JanelaPrincipal(ctk.CTk):
         self._executar_operacao(self.conversao_docx_para_pdf, (origem,), destino, "PDF")
 
     def converter_pdf_docx(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status("Selecionando documento PDF...", "neutro")
         arquivo = filedialog.askopenfilename(
             parent=self,
@@ -607,6 +669,9 @@ class JanelaPrincipal(ctk.CTk):
         formato_destino: str,
         extensoes_origem: tuple[str, ...],
     ):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status("Selecionando arquivo de origem...", "neutro")
         arquivo = filedialog.askopenfilename(
             parent=self,
@@ -633,6 +698,9 @@ class JanelaPrincipal(ctk.CTk):
         self._executar_operacao(operacao, (origem,), destino, formato_destino)
 
     def converter_imagens_pdf(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status("Selecionando imagens para gerar o PDF...", "neutro")
         arquivos = filedialog.askopenfilenames(
             parent=self,
@@ -661,6 +729,9 @@ class JanelaPrincipal(ctk.CTk):
         self._executar_operacao(self.conversao_imagem_para_pdf, origens, destino, "PDF")
 
     def compactar_arquivos_zip(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status("Selecionando arquivos para compactar...", "neutro")
         arquivos = filedialog.askopenfilenames(
             parent=self,
@@ -675,6 +746,9 @@ class JanelaPrincipal(ctk.CTk):
         self._escolher_destino_e_compactar(origens, origens[0].parent, nome_zip)
 
     def compactar_pasta_zip(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
         self._definir_status("Selecionando pasta para compactar...", "neutro")
         pasta_origem = filedialog.askdirectory(
             parent=self,
@@ -705,36 +779,113 @@ class JanelaPrincipal(ctk.CTk):
 
         self._executar_operacao(self.compactacao_zip, origens, destino, "ZIP")
 
+    # =========================================================================
+    # EXECUÇÃO ASSÍNCRONA COM THREADING E SUPORTE A CANCELAMENTO
+    # =========================================================================
+
     def _executar_operacao(
         self,
         operacao: OperacaoArquivo,
         origens: tuple[Path, ...],
         destino: Path,
         formato_destino: str,
+        *,
+        sobrescrever: bool = False,
     ):
-        try:
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        # Confirma sobrescrita na thread principal antes de disparar o worker
+        if not sobrescrever and (destino.exists() or destino.is_symlink()):
+            if not messagebox.askyesno(
+                "Substituir arquivo",
+                f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
+                parent=self,
+            ):
+                self._definir_status("Operação cancelada pelo usuário.", "neutro")
+                return
+            sobrescrever = True
+
+        cancelamento = CancelamentoOperacao()
+        self._cancelamento_atual = cancelamento
+        self._alternar_estado_ocupado(True)
+        self._definir_status(
+            f"Processando {destino.name}... Clique em Cancelar para interromper.",
+            "processando",
+        )
+
+        def _worker():
             try:
-                resultado = self.servico_operacao.executar(operacao, origens, destino)
-            except DestinoExistenteError:
-                if not messagebox.askyesno(
-                    "Substituir arquivo",
-                    f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
-                    parent=self,
-                ):
-                    self._definir_status("Operação cancelada pelo usuário.", "neutro")
-                    return
                 resultado = self.servico_operacao.executar(
-                    operacao, origens, destino, sobrescrever=True
+                    operacao,
+                    origens,
+                    destino,
+                    sobrescrever=sobrescrever,
+                    cancelamento=cancelamento,
                 )
-        except OperacaoCancelada:
-            self._definir_status("Operação cancelada.", "neutro")
-        except ValueError as erro:
-            self._definir_status(str(erro), "erro")
-        except OSError:
-            self._definir_status(
-                f"Não foi possível salvar o {formato_destino} no destino escolhido.",
-                "erro",
+            except DestinoExistenteError:
+                self.after(
+                    0,
+                    lambda: self._tratar_conflito_tardio(
+                        operacao, origens, destino, formato_destino
+                    ),
+                )
+            except OperacaoCancelada:
+                self.after(0, self._finalizar_cancelamento)
+            except ValueError as erro:
+                mensagem_erro = str(erro)
+                self.after(0, lambda: self._finalizar_erro(mensagem_erro))
+            except OSError:
+                mensagem_os = (
+                    f"Não foi possível salvar o {formato_destino} no destino escolhido."
+                )
+                self.after(0, lambda: self._finalizar_erro(mensagem_os))
+            else:
+                self.after(
+                    0,
+                    lambda: self._finalizar_sucesso(
+                        formato_destino, origens, resultado
+                    ),
+                )
+
+        self._thread_operacao = Thread(target=_worker, daemon=True)
+        self._thread_operacao.start()
+
+    def _tratar_conflito_tardio(
+        self,
+        operacao: OperacaoArquivo,
+        origens: tuple[Path, ...],
+        destino: Path,
+        formato_destino: str,
+    ):
+        self._limpar_estado_execucao()
+        if messagebox.askyesno(
+            "Substituir arquivo",
+            f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
+            parent=self,
+        ):
+            self._executar_operacao(
+                operacao, origens, destino, formato_destino, sobrescrever=True
             )
         else:
-            self._definir_status(f"{formato_destino} salvo em {resultado}", "sucesso")
-            self._registrar_no_historico(formato_destino, origens, resultado)
+            self._definir_status("Operação cancelada pelo usuário.", "neutro")
+
+    def _finalizar_cancelamento(self):
+        self._limpar_estado_execucao()
+        self._definir_status("Operação cancelada pelo usuário.", "neutro")
+
+    def _finalizar_erro(self, mensagem_erro: str):
+        self._limpar_estado_execucao()
+        self._definir_status(mensagem_erro, "erro")
+
+    def _finalizar_sucesso(
+        self, formato_destino: str, origens: tuple[Path, ...], resultado: Path
+    ):
+        self._limpar_estado_execucao()
+        self._definir_status(f"{formato_destino} salvo em {resultado}", "sucesso")
+        self._registrar_no_historico(formato_destino, origens, resultado)
+
+    def _limpar_estado_execucao(self):
+        self._cancelamento_atual = None
+        self._thread_operacao = None
+        self._alternar_estado_ocupado(False)

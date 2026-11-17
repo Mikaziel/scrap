@@ -3,7 +3,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
-PASTA_ICONES = Path(__file__).resolve().parent / "icons"
+PASTA_ICONES = Path(__file__).resolve().parent / "icones"
 
 
 def carregar_icones() -> dict[str, ctk.CTkImage]:
@@ -15,6 +15,7 @@ def carregar_icones() -> dict[str, ctk.CTkImage]:
         "compactacao": ((20, 20), _desenhar_compactacao, "#1f2937", "#e5e7eb"),
         "historico": ((20, 20), _desenhar_historico, "#1f2937", "#e5e7eb"),
         "recuperar": ((16, 16), _desenhar_recuperar, "#ffffff", "#ffffff"),
+        "cancelar": ((14, 14), _desenhar_cancelar, "#ffffff", "#ffffff"),
     }
 
     icones: dict[str, ctk.CTkImage] = {}
@@ -52,10 +53,8 @@ def _desenhar_logo(cor: str) -> Image.Image:
 
 def _desenhar_conversao(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
-    # Seta superior (esquerda -> direita)
     draw.line([(20, 42), (96, 42)], fill=cor, width=12)
     draw.polygon([(82, 22), (112, 42), (82, 62)], fill=cor)
-    # Seta inferior (direita -> esquerda)
     draw.line([(108, 86), (32, 86)], fill=cor, width=12)
     draw.polygon([(46, 66), (16, 86), (46, 106)], fill=cor)
     return img
@@ -63,20 +62,15 @@ def _desenhar_conversao(cor: str) -> Image.Image:
 
 def _desenhar_compactacao(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
-    # Caixa externa
     draw.rounded_rectangle([(18, 22), (110, 108)], radius=14, outline=cor, width=10)
-    # Divisória da tampa
     draw.line([(18, 50), (110, 50)], fill=cor, width=10)
-    # Fecho central (zíper/fita)
     draw.rectangle([(54, 22), (74, 76)], fill=cor)
     return img
 
 
 def _desenhar_historico(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
-    # Círculo do relógio
     draw.ellipse([(16, 16), (112, 112)], outline=cor, width=10)
-    # Ponteiros (vertical e horizontal)
     draw.line([(64, 36), (64, 66)], fill=cor, width=10)
     draw.line([(64, 66), (88, 80)], fill=cor, width=10)
     return img
@@ -84,9 +78,14 @@ def _desenhar_historico(cor: str) -> Image.Image:
 
 def _desenhar_recuperar(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
-    # Seta apontando para baixo
     draw.line([(64, 18), (64, 78)], fill=cor, width=12)
     draw.polygon([(38, 64), (90, 64), (64, 94)], fill=cor)
-    # Bandeja inferior de download
     draw.line([(24, 108), (104, 108)], fill=cor, width=12)
+    return img
+
+
+def _desenhar_cancelar(cor: str) -> Image.Image:
+    img, draw = _criar_tela(cor)
+    draw.line([(28, 28), (100, 100)], fill=cor, width=14)
+    draw.line([(100, 28), (28, 100)], fill=cor, width=14)
     return img
