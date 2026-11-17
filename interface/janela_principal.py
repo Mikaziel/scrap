@@ -443,24 +443,26 @@ class JanelaPrincipal(ctk.CTk):
 
     def recuperar_do_historico(self, registro: RegistroHistorico):
         self._definir_status(
-            f"Escolhendo pasta para recuperar {registro.nome_arquivo}...", "neutro"
+            f"Escolhendo local e nome para recuperar {registro.nome_arquivo}...",
+            "neutro",
         )
         pasta_original = Path(registro.destino_original).parent
         pasta_inicial = (
-            str(pasta_original) if pasta_original.exists() else str(Path.home())
+            pasta_original if pasta_original.exists() else Path.home()
         )
+        extensao = Path(registro.nome_arquivo).suffix or ".dat"
+        formato_label = extensao.lstrip(".").upper() or "ARQUIVO"
 
-        pasta_destino = filedialog.askdirectory(
-            parent=self,
-            title=f"Escolher pasta para salvar {registro.nome_arquivo}",
-            initialdir=pasta_inicial,
-            mustexist=True,
+        destino = self._solicitar_destino_salvar(
+            titulo=f"Recuperar {registro.nome_arquivo}",
+            pasta_inicial=pasta_inicial,
+            nome_sugerido=registro.nome_arquivo,
+            formato_destino=formato_label,
+            extensao_padrao=extensao,
         )
-        if not pasta_destino:
+        if destino is None:
             self._definir_status("Recuperação cancelada.", "neutro")
             return
-
-        destino = Path(pasta_destino) / registro.nome_arquivo
 
         try:
             try:
@@ -483,11 +485,47 @@ class JanelaPrincipal(ctk.CTk):
             self._atualizar_lista_historico_ui()
         except OSError:
             self._definir_status(
-                f"Não foi possível recuperar {registro.nome_arquivo} no destino escolhido.",
+                f"Não foi possível recuperar {destino.name} no destino escolhido.",
                 "erro",
             )
         else:
             self._definir_status(f"Arquivo recuperado em {resultado}", "sucesso")
+
+    # =========================================================================
+    # DIÁLOGO DE SALVAMENTO COM OPÇÃO DE RENOMEAR
+    # =========================================================================
+
+    def _solicitar_destino_salvar(
+        self,
+        *,
+        titulo: str,
+        pasta_inicial: Path,
+        nome_sugerido: str,
+        formato_destino: str,
+        extensao_padrao: str,
+    ) -> Path | None:
+        extensao_limpa = (
+            extensao_padrao
+            if extensao_padrao.startswith(".")
+            else f".{extensao_padrao}"
+        ).lower()
+
+        caminho_escolhido = filedialog.asksaveasfilename(
+            parent=self,
+            title=titulo,
+            initialdir=str(pasta_inicial),
+            initialfile=nome_sugerido,
+            defaultextension=extensao_limpa,
+            filetypes=[(f"Arquivo {formato_destino}", (f"*{extensao_limpa}",))],
+            confirmoverwrite=False,
+        )
+        if not caminho_escolhido:
+            return None
+
+        destino = Path(caminho_escolhido)
+        if destino.suffix.lower() != extensao_limpa:
+            destino = destino.with_suffix(extensao_limpa)
+        return destino
 
     # =========================================================================
     # AÇÕES DE CONVERSÃO E COMPACTAÇÃO
@@ -513,17 +551,17 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origem = Path(arquivo)
-        pasta = filedialog.askdirectory(
-            parent=self,
-            title="Escolher pasta para salvar o PDF",
-            initialdir=str(origem.parent),
-            mustexist=True,
+        destino = self._solicitar_destino_salvar(
+            titulo="Salvar PDF como",
+            pasta_inicial=origem.parent,
+            nome_sugerido=f"{origem.stem}.pdf",
+            formato_destino="PDF",
+            extensao_padrao=".pdf",
         )
-        if not pasta:
+        if destino is None:
             self._definir_status("Operação cancelada.", "neutro")
             return
 
-        destino = Path(pasta) / f"{origem.stem}.pdf"
         self._executar_operacao(self.conversao_docx_para_pdf, (origem,), destino, "PDF")
 
     def converter_pdf_docx(self):
@@ -538,17 +576,17 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origem = Path(arquivo)
-        pasta = filedialog.askdirectory(
-            parent=self,
-            title="Escolher pasta para salvar o DOCX",
-            initialdir=str(origem.parent),
-            mustexist=True,
+        destino = self._solicitar_destino_salvar(
+            titulo="Salvar DOCX como",
+            pasta_inicial=origem.parent,
+            nome_sugerido=f"{origem.stem}.docx",
+            formato_destino="DOCX",
+            extensao_padrao=".docx",
         )
-        if not pasta:
+        if destino is None:
             self._definir_status("Operação cancelada.", "neutro")
             return
 
-        destino = Path(pasta) / f"{origem.stem}.docx"
         self._executar_operacao(self.conversao_pdf_para_docx, (origem,), destino, "DOCX")
 
     def converter_imagem(
@@ -569,17 +607,18 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origem = Path(arquivo)
-        pasta = filedialog.askdirectory(
-            parent=self,
-            title=f"Escolher pasta para salvar o {formato_destino}",
-            initialdir=str(origem.parent),
-            mustexist=True,
+        extensao_destino = f".{formato_destino.lower()}"
+        destino = self._solicitar_destino_salvar(
+            titulo=f"Salvar {formato_destino} como",
+            pasta_inicial=origem.parent,
+            nome_sugerido=f"{origem.stem}{extensao_destino}",
+            formato_destino=formato_destino,
+            extensao_padrao=extensao_destino,
         )
-        if not pasta:
+        if destino is None:
             self._definir_status("Operação cancelada.", "neutro")
             return
 
-        destino = Path(pasta) / f"{origem.stem}.{formato_destino.lower()}"
         self._executar_operacao(operacao, (origem,), destino, formato_destino)
 
     def converter_imagens_pdf(self):
@@ -594,20 +633,20 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origens = tuple(Path(arquivo) for arquivo in arquivos)
-        pasta = filedialog.askdirectory(
-            parent=self,
-            title="Escolher pasta para salvar o PDF",
-            initialdir=str(origens[0].parent),
-            mustexist=True,
-        )
-        if not pasta:
-            self._definir_status("Operação cancelada.", "neutro")
-            return
-
         nome_pdf = (
             f"{origens[0].stem}.pdf" if len(origens) == 1 else "imagens_convertidas.pdf"
         )
-        destino = Path(pasta) / nome_pdf
+        destino = self._solicitar_destino_salvar(
+            titulo="Salvar PDF como",
+            pasta_inicial=origens[0].parent,
+            nome_sugerido=nome_pdf,
+            formato_destino="PDF",
+            extensao_padrao=".pdf",
+        )
+        if destino is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
         self._executar_operacao(self.conversao_imagem_para_pdf, origens, destino, "PDF")
 
     def compactar_arquivos_zip(self):
@@ -642,17 +681,17 @@ class JanelaPrincipal(ctk.CTk):
     def _escolher_destino_e_compactar(
         self, origens: tuple[Path, ...], pasta_inicial: Path, nome_sugerido: str
     ):
-        pasta_destino = filedialog.askdirectory(
-            parent=self,
-            title="Escolher pasta para salvar o ZIP",
-            initialdir=str(pasta_inicial),
-            mustexist=True,
+        destino = self._solicitar_destino_salvar(
+            titulo="Salvar arquivo ZIP como",
+            pasta_inicial=pasta_inicial,
+            nome_sugerido=nome_sugerido,
+            formato_destino="ZIP",
+            extensao_padrao=".zip",
         )
-        if not pasta_destino:
+        if destino is None:
             self._definir_status("Operação cancelada.", "neutro")
             return
 
-        destino = Path(pasta_destino) / nome_sugerido
         self._executar_operacao(self.compactacao_zip, origens, destino, "ZIP")
 
     def _executar_operacao(
