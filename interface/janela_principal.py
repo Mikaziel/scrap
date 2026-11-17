@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from interface.icones import carregar_icones
 from operacoes.cancelamento import OperacaoCancelada
 from operacoes.operacao_arquivo import OperacaoArquivo
 from servicos.repositorio_historico import RegistroHistorico, RepositorioHistorico
@@ -38,6 +39,9 @@ class JanelaPrincipal(ctk.CTk):
         self.compactacao_zip = compactacao_zip
         self.repositorio_historico = repositorio_historico or RepositorioHistorico()
 
+        # Carrega (e gera se necessário) os ícones na pasta interface/icones/
+        self.icones = carregar_icones()
+
         # Layout principal: Coluna 0 = Sidebar | Coluna 1 = Conteúdo Principal
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -49,7 +53,7 @@ class JanelaPrincipal(ctk.CTk):
         self.mostrar_secao("conversao")
 
     # =========================================================================
-    # CONSTRUÇÃO DA INTERFACE (LAYOUT MODERNO)
+    # CONSTRUÇÃO DA INTERFACE (LAYOUT MODERNO COM ÍCONES PNG)
     # =========================================================================
 
     def _construir_sidebar(self):
@@ -59,7 +63,9 @@ class JanelaPrincipal(ctk.CTk):
 
         logo = ctk.CTkLabel(
             self.sidebar,
-            text="⚡ SCRAP",
+            text="  SCRAP",
+            image=self.icones["logo"],
+            compound="left",
             font=ctk.CTkFont(size=24, weight="bold"),
         )
         logo.grid(row=0, column=0, padx=24, pady=(28, 4), sticky="w")
@@ -74,15 +80,17 @@ class JanelaPrincipal(ctk.CTk):
 
         self.botoes_nav: dict[str, ctk.CTkButton] = {}
         itens_menu = [
-            ("conversao", "🔄   Conversão"),
-            ("compactacao", "📦   Compactação"),
-            ("historico", "🕒   Histórico (30 dias)"),
+            ("conversao", "  Conversão", self.icones["conversao"]),
+            ("compactacao", "  Compactação", self.icones["compactacao"]),
+            ("historico", "  Histórico (30 dias)", self.icones["historico"]),
         ]
 
-        for idx, (chave, rotulo) in enumerate(itens_menu, start=2):
+        for idx, (chave, rotulo, icone) in enumerate(itens_menu, start=2):
             btn = ctk.CTkButton(
                 self.sidebar,
                 text=rotulo,
+                image=icone,
+                compound="left",
                 anchor="w",
                 height=42,
                 corner_radius=8,
@@ -130,13 +138,14 @@ class JanelaPrincipal(ctk.CTk):
         self.barra_status.grid(row=1, column=1, padx=28, pady=(0, 20), sticky="ew")
         self.barra_status.grid_columnconfigure(1, weight=1)
 
-        self.indicador_status = ctk.CTkLabel(
+        self.indicador_status = ctk.CTkFrame(
             self.barra_status,
-            text="●",
-            font=ctk.CTkFont(size=18),
-            text_color=("gray45", "gray55"),
+            width=12,
+            height=12,
+            corner_radius=6,
+            fg_color=("gray45", "gray55"),
         )
-        self.indicador_status.grid(row=0, column=0, padx=(16, 8), pady=12)
+        self.indicador_status.grid(row=0, column=0, padx=(18, 10), pady=18)
 
         self.mensagem = ctk.CTkLabel(
             self.barra_status,
@@ -240,35 +249,35 @@ class JanelaPrincipal(ctk.CTk):
 
         conversoes_disponiveis = [
             (
-                "IMAGEM • JPG → PNG",
+                "IMAGEM  |  JPG -> PNG",
                 "Converter JPG para PNG",
                 "Converte fotos JPEG para o formato PNG sem perdas e com orientação EXIF corrigida.",
                 "Selecionar JPG",
                 self.converter_jpg,
             ),
             (
-                "IMAGEM • PNG → JPG",
+                "IMAGEM  |  PNG -> JPG",
                 "Converter PNG para JPG",
                 "Transforma imagens PNG em arquivos JPEG compactos aplicando fundo branco na transparência.",
                 "Selecionar PNG",
                 self.converter_png,
             ),
             (
-                "DOCUMENTO • IMG → PDF",
+                "DOCUMENTO  |  IMG -> PDF",
                 "Converter Imagens para PDF",
                 "Gera um documento PDF a partir de uma ou várias imagens (JPG e PNG), criando páginas em sequência.",
                 "Selecionar Imagens",
                 self.converter_imagens_pdf,
             ),
             (
-                "DOCUMENTO • DOCX → PDF",
+                "DOCUMENTO  |  DOCX -> PDF",
                 "Converter DOCX para PDF",
                 "Transforma documentos do Word (.docx) em arquivos PDF prontos para leitura e impressão.",
                 "Selecionar DOCX",
                 self.converter_docx_pdf,
             ),
             (
-                "DOCUMENTO • PDF → DOCX",
+                "DOCUMENTO  |  PDF -> DOCX",
                 "Converter PDF para DOCX",
                 "Converte arquivos PDF em documentos editáveis do Word (.docx) preservando textos e estrutura.",
                 "Selecionar PDF",
@@ -303,14 +312,14 @@ class JanelaPrincipal(ctk.CTk):
 
         opcoes_zip = [
             (
-                "ARQUIVOS • MÚLTIPLOS",
+                "ARQUIVOS  |  MÚLTIPLOS",
                 "Compactar Arquivos em ZIP",
                 "Selecione um ou vários arquivos individuais para gerar um pacote .zip único.",
                 "Escolher Arquivos",
                 self.compactar_arquivos_zip,
             ),
             (
-                "DIRETÓRIO • RECURSIVO",
+                "DIRETÓRIO  |  RECURSIVO",
                 "Compactar Pasta em ZIP",
                 "Comprime uma pasta completa preservando toda a estrutura interna de subpastas.",
                 "Escolher Pasta",
@@ -376,7 +385,7 @@ class JanelaPrincipal(ctk.CTk):
             "sucesso": ("#16a34a", "#4ade80"),
             "erro": ("#dc2626", "#f87171"),
         }
-        self.indicador_status.configure(text_color=cores.get(tipo, cores["neutro"]))
+        self.indicador_status.configure(fg_color=cores.get(tipo, cores["neutro"]))
         self.mensagem.configure(text=texto)
 
     def _registrar_no_historico(
@@ -419,7 +428,7 @@ class JanelaPrincipal(ctk.CTk):
 
             ctk.CTkLabel(
                 linha,
-                text=f"{item.resumo_origem}  →  {item.nome_arquivo}",
+                text=f"{item.resumo_origem}  ->  {item.nome_arquivo}",
                 font=ctk.CTkFont(size=12),
                 anchor="w",
             ).grid(row=0, column=1, padx=8, pady=10, sticky="ew")
@@ -433,8 +442,10 @@ class JanelaPrincipal(ctk.CTk):
 
             ctk.CTkButton(
                 linha,
-                text="⬇ Recuperar",
-                width=110,
+                text=" Recuperar",
+                image=self.icones["recuperar"],
+                compound="left",
+                width=115,
                 height=30,
                 corner_radius=6,
                 font=ctk.CTkFont(size=12, weight="bold"),
