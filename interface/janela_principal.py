@@ -1,3 +1,4 @@
+from logging import getLogger
 from pathlib import Path
 from sys import platform
 from threading import Thread
@@ -11,7 +12,11 @@ from operacoes.compressao_imagem import CompressaoImagem
 from operacoes.descompactacao_zip import DescompactacaoZip
 from operacoes.operacao_arquivo import OperacaoArquivo
 from operacoes.utilitarios_pdf import DividirPdf, MesclarPdf
-from servicos.repositorio_historico import RegistroHistorico, RepositorioHistorico
+from servicos.repositorio_historico import (
+    OPERACAO_PDF_DIVIDIDO,
+    RegistroHistorico,
+    RepositorioHistorico,
+)
 from servicos.servico_operacao import DestinoExistenteError, ServicoOperacao
 
 ctk.set_appearance_mode("Dark")
@@ -564,15 +569,6 @@ class JanelaPrincipal(ctk.CTk):
             if self._cancelamento_atual.solicitar():
                 self.botao_cancelar.configure(state="disabled", text=" Cancelando...")
                 self._definir_status("Cancelando operação...", "neutro")
-
-    def _registrar_no_historico(
-        self, tipo_operacao: str, origens: tuple[Path, ...], destino: Path
-    ):
-        try:
-            self.repositorio_historico.registrar(tipo_operacao, origens, destino)
-        except OSError:
-            pass
-        self._atualizar_lista_historico_ui()
 
     def _atualizar_lista_historico_ui(self):
         for widget in self.lista_historico_ui.winfo_children():
@@ -1137,7 +1133,9 @@ class JanelaPrincipal(ctk.CTk):
 
         nome_limpo = nome_pasta.strip() or f"{origem.stem}-paginas"
         destino = Path(pasta_pai) / nome_limpo
-        self._executar_operacao(self.dividir_pdf, (origem,), destino, "PDF DIVIDIDO")
+        self._executar_operacao(
+            self.dividir_pdf, (origem,), destino, OPERACAO_PDF_DIVIDIDO
+        )
 
     def compactar_arquivos_zip(self):
         if self._thread_operacao is not None and self._thread_operacao.is_alive():
@@ -1290,10 +1288,19 @@ class JanelaPrincipal(ctk.CTk):
                 )
                 self.after(0, lambda: self._finalizar_erro(mensagem_os))
             else:
+                try:
+                    self.repositorio_historico.registrar(
+                        formato_destino, origens, resultado
+                    )
+                except Exception:
+                    getLogger(__name__).exception("Falha ao registrar operação no histórico.")
+                    historico_salvo = False
+                else:
+                    historico_salvo = True
                 self.after(
                     0,
                     lambda: self._finalizar_sucesso(
-                        formato_destino, origens, resultado
+                        formato_destino, origens, resultado, historico_salvo
                     ),
                 )
 
@@ -1328,7 +1335,11 @@ class JanelaPrincipal(ctk.CTk):
         self._definir_status(mensagem_erro, "erro")
 
     def _finalizar_sucesso(
-        self, formato_destino: str, origens: tuple[Path, ...], resultado: Path
+        self,
+        formato_destino: str,
+        origens: tuple[Path, ...],
+        resultado: Path,
+        historico_salvo: bool,
     ):
         self._limpar_estado_execucao()
         detalhe_reducao = ""
@@ -1346,10 +1357,12 @@ class JanelaPrincipal(ctk.CTk):
                 depois_str = RepositorioHistorico.formatar_tamanho(tam_depois)
                 detalhe_reducao = f" ({antes_str} -> {depois_str}, -{economia:.0f}%)"
 
-        self._definir_status(
-            f"{formato_destino} salvo em {resultado}{detalhe_reducao}", "sucesso"
-        )
-        self._registrar_no_historico(formato_destino, origens, resultado)
+        mensagem = f"{formato_destino} salvo em {resultado}{detalhe_reducao}"
+        if historico_salvo:
+            self._atualizar_lista_historico_ui()
+        else:
+            mensagem += ". Falha ao salvar no histórico."
+        self._definir_status(mensagem, "sucesso")
 
     def _limpar_estado_execucao(self):
         self._cancelamento_atual = None

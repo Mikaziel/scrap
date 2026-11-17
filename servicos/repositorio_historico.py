@@ -4,10 +4,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from operacoes.compactacao_zip import CompactacaoZip
+from operacoes.utilitarios_pdf import DividirPdf
 from servicos.servico_operacao import DestinoExistenteError
 
 DIAS_RETENCAO = 30
 CAMINHO_BANCO_PADRAO = Path(__file__).resolve().parent.parent / "db/historico_scrap.db"
+OPERACAO_PDF_DIVIDIDO = "PDF DIVIDIDO"
+ASSINATURA_PDF = b"%PDF-"
 
 
 @dataclass(frozen=True)
@@ -98,8 +102,14 @@ class RepositorioHistorico:
         arquivo_gerado: Path,
     ) -> int:
         self.limpar_expirados()
-        # Se o resultado for uma pasta extraída, armazena o arquivo ZIP de origem para recuperação
-        if arquivo_gerado.is_dir() and origens and origens[0].is_file():
+        if operacao == OPERACAO_PDF_DIVIDIDO:
+            nome_para_recuperar = f"{arquivo_gerado.name}.zip"
+            with TemporaryDirectory() as temporario:
+                arquivo_zip = Path(temporario) / "paginas.zip"
+                self._compactar_paginas(arquivo_gerado, arquivo_zip)
+                conteudo = arquivo_zip.read_bytes()
+        elif arquivo_gerado.is_dir() and origens and origens[0].is_file():
+            # A extração guarda o pacote ZIP de origem para recuperação.
             conteudo = origens[0].read_bytes()
             nome_para_recuperar = origens[0].name
         else:
@@ -152,10 +162,14 @@ class RepositorioHistorico:
                     nome_arquivo,
                     destino_original,
                     criado_em_exibicao,
-                    LENGTH(conteudo) AS tamanho_bytes
+                    LENGTH(conteudo) AS tamanho_bytes,
+                    CASE WHEN operacao = ? AND nome_arquivo = resumo_origem
+                         THEN substr(conteudo, 1, 5) = ?
+                         ELSE 0 END AS divisao_legada
                 FROM historico_operacoes
                 ORDER BY id DESC
-                """
+                """,
+                (OPERACAO_PDF_DIVIDIDO, ASSINATURA_PDF),
             ).fetchall()
 
         return [
@@ -163,7 +177,11 @@ class RepositorioHistorico:
                 id=linha["id"],
                 operacao=linha["operacao"],
                 resumo_origem=linha["resumo_origem"],
-                nome_arquivo=linha["nome_arquivo"],
+                nome_arquivo=(
+                    f"{Path(linha['destino_original']).name}.zip"
+                    if linha["divisao_legada"]
+                    else linha["nome_arquivo"]
+                ),
                 destino_original=linha["destino_original"],
                 criado_em=linha["criado_em_exibicao"],
                 tamanho_bytes=int(linha["tamanho_bytes"] or 0),
@@ -208,7 +226,11 @@ class RepositorioHistorico:
 
         with self._conectar() as conexao:
             linha = conexao.execute(
-                "SELECT conteudo FROM historico_operacoes WHERE id = ?",
+                """
+                SELECT operacao, nome_arquivo, conteudo
+                FROM historico_operacoes
+                WHERE id = ?
+                """,
                 (registro_id,),
             ).fetchone()
 
@@ -222,7 +244,12 @@ class RepositorioHistorico:
         destino.parent.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=destino.parent) as pasta_temporaria:
             arquivo_temporario = Path(pasta_temporaria) / destino.name
-            arquivo_temporario.write_bytes(dados)
+            if linha["operacao"] == OPERACAO_PDF_DIVIDIDO and dados.startswith(
+                ASSINATURA_PDF
+            ):
+                self._recriar_zip_divisao(linha["nome_arquivo"], dados, arquivo_temporario)
+            else:
+                arquivo_temporario.write_bytes(dados)
 
             if not sobrescrever:
                 try:
@@ -239,3 +266,22 @@ class RepositorioHistorico:
                 raise
 
         return destino
+
+    @staticmethod
+    def _compactar_paginas(pasta: Path, destino: Path) -> None:
+        paginas = tuple(
+            sorted(arquivo for arquivo in pasta.glob("*.pdf") if arquivo.is_file())
+        )
+        CompactacaoZip().executar(paginas, destino)
+
+    def _recriar_zip_divisao(self, nome_arquivo: str, dados: bytes, destino: Path) -> None:
+        with TemporaryDirectory() as temporario:
+            pasta = Path(temporario)
+            pasta_origem = pasta / "origem"
+            pasta_origem.mkdir()
+            origem = pasta_origem / Path(nome_arquivo).name
+            origem.write_bytes(dados)
+
+            paginas = pasta / "paginas"
+            DividirPdf().executar((origem,), paginas)
+            self._compactar_paginas(paginas, destino)
