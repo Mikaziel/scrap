@@ -1,10 +1,9 @@
 from pathlib import Path
 
-from docx import Document
 from pypdf import PdfReader
-from pypdf.errors import PdfReadError, PdfStreamError
+from pypdf.errors import PdfReadError
 
-from operacoes.cancelamento import CancelamentoOperacao
+from operacoes.cancelamento import CancelamentoOperacao, OperacaoCancelada
 from operacoes.operacao_arquivo import OperacaoArquivo
 
 
@@ -23,114 +22,76 @@ class ConversaoPdfParaDocx(OperacaoArquivo):
             raise ValueError("Selecione um único arquivo PDF.")
 
         origem = origens[0]
-        if not origem.exists() or not origem.is_file():
-            raise ValueError("Não foi possível ler o documento. Escolha um PDF válido.")
-
-        leitor = self._validar_e_abrir_pdf(origem)
-        cancelamento.verificar()
-
-        # 1. Tenta conversão mantendo layout, tabelas e imagens via pdf2docx
-        if self._converter_com_pdf2docx(origem, destino, len(leitor.pages), cancelamento):
-            return
-
-        # 2. Fallback nativo extraindo texto página a página com pypdf + python-docx
-        self._converter_com_pypdf(leitor, destino, cancelamento)
+        self._validar_pdf(origem, cancelamento)
+        self._converter_com_pdf2docx(origem, destino, cancelamento)
 
     @staticmethod
-    def _validar_e_abrir_pdf(origem: Path) -> PdfReader:
+    def _validar_pdf(origem: Path, cancelamento: CancelamentoOperacao) -> None:
+        mensagem_invalido = "Não foi possível ler o documento. Escolha um PDF válido."
         try:
             with origem.open("rb") as arquivo:
-                assinatura = arquivo.read(5)
-            if assinatura != b"%PDF-":
-                raise ValueError("Assinatura PDF inválida.")
+                if arquivo.read(5) != b"%PDF-":
+                    raise ValueError(mensagem_invalido)
+                arquivo.seek(0)
+                leitor = PdfReader(arquivo)
 
-            leitor = PdfReader(str(origem))
-            if leitor.is_encrypted:
-                raise ValueError(
-                    "O arquivo PDF está protegido por senha e não pode ser convertido."
-                )
-            if len(leitor.pages) == 0:
-                raise ValueError("O arquivo PDF não possui páginas.")
-            return leitor
-        except ValueError as erro:
-            if "protegido por senha" in str(erro):
-                raise
-            raise ValueError(
-                "Não foi possível ler o documento. Escolha um PDF válido."
-            ) from erro
-        except (PdfReadError, PdfStreamError, OSError, Exception) as erro:
-            raise ValueError(
-                "Não foi possível ler o documento. Escolha um PDF válido."
-            ) from erro
+                if leitor.is_encrypted:
+                    raise ValueError(
+                        "O arquivo PDF está protegido por senha e não pode ser convertido."
+                    )
+                if len(leitor.pages) == 0:
+                    raise ValueError("O arquivo PDF não possui páginas.")
+
+                for pagina in leitor.pages:
+                    cancelamento.verificar()
+                    if (pagina.extract_text() or "").strip():
+                        return
+        except (PdfReadError, OSError) as erro:
+            raise ValueError(mensagem_invalido) from erro
+
+        raise ValueError(
+            "O PDF não contém texto selecionável. Use um PDF com texto ou "
+            "aplique OCR ao documento digitalizado antes de converter."
+        )
 
     @staticmethod
     def _converter_com_pdf2docx(
-        origem: Path,
-        destino: Path,
-        total_paginas: int,
-        cancelamento: CancelamentoOperacao,
-    ) -> bool:
+        origem: Path, destino: Path, cancelamento: CancelamentoOperacao
+    ) -> None:
+        cancelamento.verificar()
         try:
             from pdf2docx import Converter
-        except ImportError:
-            return False
-
-        conversor = None
-        try:
-            cancelamento.verificar()
-            conversor = Converter(str(origem))
-            for indice_pagina in range(total_paginas):
-                cancelamento.verificar()
-                conversor.convert(
-                    str(destino),
-                    start=indice_pagina,
-                    end=indice_pagina + 1,
-                )
-            cancelamento.verificar()
-            return destino.is_file() and destino.stat().st_size > 0
-        except Exception:
-            if cancelamento.solicitado:
-                cancelamento.verificar()
-            return False
-        finally:
-            if conversor is not None:
-                try:
-                    conversor.close()
-                except Exception:
-                    pass
-
-    @staticmethod
-    def _converter_com_pypdf(
-        leitor: PdfReader,
-        destino: Path,
-        cancelamento: CancelamentoOperacao,
-    ) -> None:
-        try:
-            documento = Document()
-            total_paginas = len(leitor.pages)
-
-            for indice, pagina in enumerate(leitor.pages):
-                cancelamento.verificar()
-                texto = (pagina.extract_text() or "").strip()
-
-                if texto:
-                    for linha in texto.splitlines():
-                        cancelamento.verificar()
-                        linha_limpa = "".join(
-                            ch for ch in linha if ch.isprintable() or ch in "\t"
-                        )
-                        documento.add_paragraph(linha_limpa)
-                else:
-                    documento.add_paragraph("")
-
-                if indice < total_paginas - 1:
-                    documento.add_page_break()
-
-            cancelamento.verificar()
-            documento.save(str(destino))
-        except Exception as erro:
-            if cancelamento.solicitado:
-                cancelamento.verificar()
+        except (ImportError, OSError) as erro:
             raise ValueError(
-                "Não foi possível converter o arquivo PDF para DOCX."
+                "O conversor PDF para DOCX está indisponível. "
+                "Instale as dependências do SCRAP e tente novamente."
             ) from erro
+
+        try:
+            conversor = Converter(str(origem))
+            try:
+                ajustes = conversor.default_settings
+                ajustes["ignore_page_error"] = False
+                conversor.load_pages()
+                cancelamento.verificar()
+                conversor.parse_document(**ajustes)
+                for pagina in conversor.pages:
+                    cancelamento.verificar()
+                    pagina.parse(**ajustes)
+
+                # Grava todas as páginas em um único documento.
+                cancelamento.verificar()
+                conversor.make_docx(str(destino), **ajustes)
+            finally:
+                conversor.close()
+        except (OperacaoCancelada, OSError):
+            raise
+        except Exception as erro:
+            raise ValueError(
+                "Não foi possível converter todas as páginas para DOCX. "
+                "Tente um PDF com texto selecionável e layout mais simples."
+            ) from erro
+
+        cancelamento.verificar()
+        if not destino.is_file() or destino.stat().st_size == 0:
+            raise ValueError("A conversão não gerou um arquivo DOCX.")
