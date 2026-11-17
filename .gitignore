@@ -226,3 +226,8 @@ devcontainer.json
 
 #banco de dados 
 *db
+
+#Bytecode e cahce do python
+__pycache__
+*.py[cod]
+*$py.class
