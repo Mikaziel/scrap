@@ -13,6 +13,7 @@ def carregar_icones() -> dict[str, ctk.CTkImage]:
         "logo": ((28, 28), _desenhar_logo, "#3b82f6", "#60a5fa"),
         "conversao": ((20, 20), _desenhar_conversao, "#1f2937", "#e5e7eb"),
         "compactacao": ((20, 20), _desenhar_compactacao, "#1f2937", "#e5e7eb"),
+        "pdf": ((20, 20), _desenhar_pdf, "#1f2937", "#e5e7eb"),
         "historico": ((20, 20), _desenhar_historico, "#1f2937", "#e5e7eb"),
         "recuperar": ((16, 16), _desenhar_recuperar, "#ffffff", "#ffffff"),
         "cancelar": ((14, 14), _desenhar_cancelar, "#ffffff", "#ffffff"),
@@ -69,6 +70,17 @@ def _desenhar_compactacao(cor: str) -> Image.Image:
     return img
 
 
+def _desenhar_pdf(cor: str) -> Image.Image:
+    img, draw = _criar_tela(cor)
+    # Contorno da folha de documento
+    draw.rounded_rectangle([(24, 14), (104, 114)], radius=10, outline=cor, width=10)
+    # Linhas representando o conteúdo do PDF
+    draw.line([(42, 46), (86, 46)], fill=cor, width=9)
+    draw.line([(42, 68), (86, 68)], fill=cor, width=9)
+    draw.line([(42, 90), (70, 90)], fill=cor, width=9)
+    return img
+
+
 def _desenhar_historico(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
     draw.ellipse([(16, 16), (112, 112)], outline=cor, width=10)
@@ -94,12 +106,9 @@ def _desenhar_cancelar(cor: str) -> Image.Image:
 
 def _desenhar_excluir(cor: str) -> Image.Image:
     img, draw = _criar_tela(cor)
-    # Tampa da lixeira e alça
     draw.line([(24, 30), (104, 30)], fill=cor, width=10)
     draw.rectangle([(48, 16), (80, 30)], outline=cor, width=8)
-    # Corpo da lixeira
     draw.rounded_rectangle([(32, 36), (96, 112)], radius=10, outline=cor, width=10)
-    # Linhas verticais internas
     draw.line([(54, 54), (54, 94)], fill=cor, width=8)
     draw.line([(74, 54), (74, 94)], fill=cor, width=8)
     return img

@@ -9,6 +9,7 @@ from operacoes.cancelamento import CancelamentoOperacao, OperacaoCancelada
 from operacoes.compressao_imagem import CompressaoImagem
 from operacoes.descompactacao_zip import DescompactacaoZip
 from operacoes.operacao_arquivo import OperacaoArquivo
+from operacoes.utilitarios_pdf import DividirPdf, MesclarPdf
 from servicos.repositorio_historico import RegistroHistorico, RepositorioHistorico
 from servicos.servico_operacao import DestinoExistenteError, ServicoOperacao
 
@@ -28,6 +29,8 @@ class JanelaPrincipal(ctk.CTk):
         compactacao_zip: OperacaoArquivo,
         descompactacao_zip: OperacaoArquivo | None = None,
         compressao_imagem: OperacaoArquivo | None = None,
+        mesclar_pdf: OperacaoArquivo | None = None,
+        dividir_pdf: OperacaoArquivo | None = None,
         repositorio_historico: RepositorioHistorico | None = None,
     ):
         super().__init__()
@@ -44,6 +47,8 @@ class JanelaPrincipal(ctk.CTk):
         self.compactacao_zip = compactacao_zip
         self.descompactacao_zip = descompactacao_zip or DescompactacaoZip()
         self.compressao_imagem = compressao_imagem or CompressaoImagem()
+        self.mesclar_pdf = mesclar_pdf or MesclarPdf()
+        self.dividir_pdf = dividir_pdf or DividirPdf()
         self.repositorio_historico = repositorio_historico or RepositorioHistorico()
 
         # Controle de execução em background e cancelamento
@@ -71,7 +76,7 @@ class JanelaPrincipal(ctk.CTk):
     def _construir_sidebar(self):
         self.sidebar = ctk.CTkFrame(self, width=230, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=2, sticky="nsew")
-        self.sidebar.grid_rowconfigure(5, weight=1)
+        self.sidebar.grid_rowconfigure(6, weight=1)
 
         logo = ctk.CTkLabel(
             self.sidebar,
@@ -94,6 +99,7 @@ class JanelaPrincipal(ctk.CTk):
         itens_menu = [
             ("conversao", "  Conversão", self.icones["conversao"]),
             ("compactacao", "  Compressão & ZIP", self.icones["compactacao"]),
+            ("utilitarios_pdf", "  Utilitários PDF", self.icones["pdf"]),
             ("historico", "  Histórico (30 dias)", self.icones["historico"]),
         ]
 
@@ -121,7 +127,7 @@ class JanelaPrincipal(ctk.CTk):
             font=ctk.CTkFont(size=12),
             text_color=("gray40", "gray60"),
         )
-        lbl_tema.grid(row=6, column=0, padx=20, pady=(10, 4), sticky="w")
+        lbl_tema.grid(row=7, column=0, padx=20, pady=(10, 4), sticky="w")
 
         seletor_tema = ctk.CTkOptionMenu(
             self.sidebar,
@@ -129,7 +135,7 @@ class JanelaPrincipal(ctk.CTk):
             command=self._alterar_tema,
             height=32,
         )
-        seletor_tema.grid(row=7, column=0, padx=20, pady=(0, 24), sticky="ew")
+        seletor_tema.grid(row=8, column=0, padx=20, pady=(0, 24), sticky="ew")
 
     def _construir_area_principal(self):
         self.container = ctk.CTkFrame(self, fg_color="transparent")
@@ -140,6 +146,7 @@ class JanelaPrincipal(ctk.CTk):
         self.secoes: dict[str, ctk.CTkFrame] = {
             "conversao": self._criar_secao_conversao(),
             "compactacao": self._criar_secao_compactacao(),
+            "utilitarios_pdf": self._criar_secao_utilitarios_pdf(),
             "historico": self._criar_secao_historico(),
         }
 
@@ -375,6 +382,46 @@ class JanelaPrincipal(ctk.CTk):
         ]
 
         for idx, (badge, titulo, desc, texto_btn, cmd) in enumerate(opcoes_zip):
+            linha, coluna = divmod(idx, 2)
+            self._criar_card_operacao(
+                grade, linha, coluna, badge, titulo, desc, texto_btn, cmd
+            )
+
+        return frame
+
+    def _criar_secao_utilitarios_pdf(self) -> ctk.CTkFrame:
+        frame = ctk.CTkFrame(self.container, fg_color="transparent")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(2, weight=1)
+
+        self._criar_cabecalho_secao(
+            frame,
+            "Utilitários de PDF",
+            "Organize, unifique múltiplos documentos PDF ou separe páginas em arquivos independentes.",
+        )
+
+        grade = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        grade.grid(row=2, column=0, sticky="nsew")
+        grade.grid_columnconfigure((0, 1), weight=1)
+
+        opcoes_pdf = [
+            (
+                "PDF  |  UNIFICAR ARQUIVOS",
+                "Mesclar PDFs",
+                "Une 2 ou mais arquivos PDF em um único documento contínuo mantendo a ordem selecionada.",
+                "Selecionar PDFs",
+                self.mesclar_arquivos_pdf,
+            ),
+            (
+                "PDF  |  SEPARAR PÁGINAS",
+                "Dividir PDF em Páginas",
+                "Extrai todas as páginas de um documento PDF salvando cada página como um arquivo separado.",
+                "Selecionar PDF",
+                self.dividir_arquivo_pdf,
+            ),
+        ]
+
+        for idx, (badge, titulo, desc, texto_btn, cmd) in enumerate(opcoes_pdf):
             linha, coluna = divmod(idx, 2)
             self._criar_card_operacao(
                 grade, linha, coluna, badge, titulo, desc, texto_btn, cmd
@@ -699,7 +746,7 @@ class JanelaPrincipal(ctk.CTk):
         return destino
 
     # =========================================================================
-    # AÇÕES DE CONVERSÃO, COMPACTAÇÃO E EXTRAÇÃO
+    # AÇÕES DE CONVERSÃO, COMPACTAÇÃO, EXTRAÇÃO E UTILITÁRIOS PDF
     # =========================================================================
 
     def converter_jpg(self):
@@ -725,7 +772,11 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origem = Path(arquivo)
-        extensao = origem.suffix.lower() if origem.suffix.lower() in (".jpg", ".jpeg", ".png") else ".jpg"
+        extensao = (
+            origem.suffix.lower()
+            if origem.suffix.lower() in (".jpg", ".jpeg", ".png")
+            else ".jpg"
+        )
         formato_label = "PNG" if extensao == ".png" else "JPG"
 
         destino = self._solicitar_destino_salvar(
@@ -864,6 +915,78 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         self._executar_operacao(self.conversao_imagem_para_pdf, origens, destino, "PDF")
+
+    def mesclar_arquivos_pdf(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        self._definir_status("Selecionando arquivos PDF para mesclar...", "neutro")
+        arquivos = filedialog.askopenfilenames(
+            parent=self,
+            title="Selecionar 2 ou mais arquivos PDF para mesclar",
+            filetypes=[("Documento PDF", ("*.pdf",))],
+        )
+        if not arquivos:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origens = tuple(Path(arquivo) for arquivo in arquivos)
+        if len(origens) < 2:
+            self._definir_status(
+                "Selecione pelo menos 2 arquivos PDF para mesclar.", "erro"
+            )
+            return
+
+        destino = self._solicitar_destino_salvar(
+            titulo="Salvar PDF mesclado como",
+            pasta_inicial=origens[0].parent,
+            nome_sugerido=f"{origens[0].stem}-mesclado.pdf",
+            formato_destino="PDF",
+            extensao_padrao=".pdf",
+        )
+        if destino is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        self._executar_operacao(self.mesclar_pdf, origens, destino, "PDF MESCLADO")
+
+    def dividir_arquivo_pdf(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        self._definir_status("Selecionando arquivo PDF para dividir em páginas...", "neutro")
+        arquivo = filedialog.askopenfilename(
+            parent=self,
+            title="Selecionar arquivo PDF para dividir",
+            filetypes=[("Documento PDF", ("*.pdf",))],
+        )
+        if not arquivo:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origem = Path(arquivo)
+        pasta_pai = filedialog.askdirectory(
+            parent=self,
+            title="Escolher pasta onde as páginas serão salvas",
+            initialdir=str(origem.parent),
+            mustexist=True,
+        )
+        if not pasta_pai:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        dialogo_nome = ctk.CTkInputDialog(
+            text=f"Nome da pasta para salvar as páginas (padrão: {origem.stem}-paginas):",
+            title="Nome da Pasta de Páginas",
+        )
+        nome_pasta = dialogo_nome.get_input()
+        if nome_pasta is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        nome_limpo = nome_pasta.strip() or f"{origem.stem}-paginas"
+        destino = Path(pasta_pai) / nome_limpo
+        self._executar_operacao(self.dividir_pdf, (origem,), destino, "PDF DIVIDIDO")
 
     def compactar_arquivos_zip(self):
         if self._thread_operacao is not None and self._thread_operacao.is_alive():

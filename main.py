@@ -6,6 +6,7 @@ from operacoes.conversao_imagem import ConversaoImagem
 from operacoes.conversao_pdf import ConversaoImagemParaPdf
 from operacoes.conversao_pdf_docx import ConversaoPdfParaDocx
 from operacoes.descompactacao_zip import DescompactacaoZip
+from operacoes.utilitarios_pdf import DividirPdf, MesclarPdf
 from servicos.repositorio_historico import RepositorioHistorico
 from servicos.servico_operacao import ServicoOperacao
 
@@ -21,6 +22,8 @@ def main():
         compactacao_zip=CompactacaoZip(),
         descompactacao_zip=DescompactacaoZip(),
         compressao_imagem=CompressaoImagem(),
+        mesclar_pdf=MesclarPdf(),
+        dividir_pdf=DividirPdf(),
         repositorio_historico=RepositorioHistorico(),
     )
     janela.mainloop()

@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from servicos.servico_operacao import DestinoExistenteError
 
 DIAS_RETENCAO = 30
-CAMINHO_BANCO_PADRAO = Path(__file__).resolve().parent.parent / "historico_scrap.db"
+CAMINHO_BANCO_PADRAO = Path(__file__).resolve().parent.parent / "db/historico_scrap.db"
 
 
 @dataclass(frozen=True)
