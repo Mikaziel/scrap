@@ -2,3 +2,5 @@ customtkinter==6.0.0
 Pillow==12.3.0
 python-docx
 fpdf2
+pdf2docx
+pypdf

@@ -20,6 +20,7 @@ class JanelaPrincipal(ctk.CTk):
         conversao_png_para_jpg: OperacaoArquivo,
         conversao_imagem_para_pdf: OperacaoArquivo,
         conversao_docx_para_pdf: OperacaoArquivo,
+        conversao_pdf_para_docx: OperacaoArquivo,
         compactacao_zip: OperacaoArquivo,
         repositorio_historico: RepositorioHistorico | None = None,
     ):
@@ -33,6 +34,7 @@ class JanelaPrincipal(ctk.CTk):
         self.conversao_png_para_jpg = conversao_png_para_jpg
         self.conversao_imagem_para_pdf = conversao_imagem_para_pdf
         self.conversao_docx_para_pdf = conversao_docx_para_pdf
+        self.conversao_pdf_para_docx = conversao_pdf_para_docx
         self.compactacao_zip = compactacao_zip
         self.repositorio_historico = repositorio_historico or RepositorioHistorico()
 
@@ -264,6 +266,13 @@ class JanelaPrincipal(ctk.CTk):
                 "Transforma documentos do Word (.docx) em arquivos PDF prontos para leitura e impressão.",
                 "Selecionar DOCX",
                 self.converter_docx_pdf,
+            ),
+            (
+                "DOCUMENTO • PDF → DOCX",
+                "Converter PDF para DOCX",
+                "Converte arquivos PDF em documentos editáveis do Word (.docx) preservando textos e estrutura.",
+                "Selecionar PDF",
+                self.converter_pdf_docx,
             ),
         ]
 
@@ -516,6 +525,31 @@ class JanelaPrincipal(ctk.CTk):
 
         destino = Path(pasta) / f"{origem.stem}.pdf"
         self._executar_operacao(self.conversao_docx_para_pdf, (origem,), destino, "PDF")
+
+    def converter_pdf_docx(self):
+        self._definir_status("Selecionando documento PDF...", "neutro")
+        arquivo = filedialog.askopenfilename(
+            parent=self,
+            title="Selecionar documento PDF",
+            filetypes=[("Documento PDF", ("*.pdf",))],
+        )
+        if not arquivo:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origem = Path(arquivo)
+        pasta = filedialog.askdirectory(
+            parent=self,
+            title="Escolher pasta para salvar o DOCX",
+            initialdir=str(origem.parent),
+            mustexist=True,
+        )
+        if not pasta:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        destino = Path(pasta) / f"{origem.stem}.docx"
+        self._executar_operacao(self.conversao_pdf_para_docx, (origem,), destino, "DOCX")
 
     def converter_imagem(
         self,
