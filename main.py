@@ -1,5 +1,6 @@
 from interface.janela_principal import JanelaPrincipal
 from operacoes.compactacao_zip import CompactacaoZip
+from operacoes.compressao_imagem import CompressaoImagem
 from operacoes.conversao_docx_pdf import ConversaoDocxParaPdf
 from operacoes.conversao_imagem import ConversaoImagem
 from operacoes.conversao_pdf import ConversaoImagemParaPdf
@@ -19,6 +20,7 @@ def main():
         conversao_pdf_para_docx=ConversaoPdfParaDocx(),
         compactacao_zip=CompactacaoZip(),
         descompactacao_zip=DescompactacaoZip(),
+        compressao_imagem=CompressaoImagem(),
         repositorio_historico=RepositorioHistorico(),
     )
     janela.mainloop()

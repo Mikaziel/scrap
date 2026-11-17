@@ -6,6 +6,7 @@ import customtkinter as ctk
 
 from interface.icones import carregar_icones
 from operacoes.cancelamento import CancelamentoOperacao, OperacaoCancelada
+from operacoes.compressao_imagem import CompressaoImagem
 from operacoes.descompactacao_zip import DescompactacaoZip
 from operacoes.operacao_arquivo import OperacaoArquivo
 from servicos.repositorio_historico import RegistroHistorico, RepositorioHistorico
@@ -26,6 +27,7 @@ class JanelaPrincipal(ctk.CTk):
         conversao_pdf_para_docx: OperacaoArquivo,
         compactacao_zip: OperacaoArquivo,
         descompactacao_zip: OperacaoArquivo | None = None,
+        compressao_imagem: OperacaoArquivo | None = None,
         repositorio_historico: RepositorioHistorico | None = None,
     ):
         super().__init__()
@@ -41,6 +43,7 @@ class JanelaPrincipal(ctk.CTk):
         self.conversao_pdf_para_docx = conversao_pdf_para_docx
         self.compactacao_zip = compactacao_zip
         self.descompactacao_zip = descompactacao_zip or DescompactacaoZip()
+        self.compressao_imagem = compressao_imagem or CompressaoImagem()
         self.repositorio_historico = repositorio_historico or RepositorioHistorico()
 
         # Controle de execução em background e cancelamento
@@ -90,7 +93,7 @@ class JanelaPrincipal(ctk.CTk):
         self.botoes_nav: dict[str, ctk.CTkButton] = {}
         itens_menu = [
             ("conversao", "  Conversão", self.icones["conversao"]),
-            ("compactacao", "  Compactação", self.icones["compactacao"]),
+            ("compactacao", "  Compressão & ZIP", self.icones["compactacao"]),
             ("historico", "  Histórico (30 dias)", self.icones["historico"]),
         ]
 
@@ -332,8 +335,8 @@ class JanelaPrincipal(ctk.CTk):
 
         self._criar_cabecalho_secao(
             frame,
-            "Compactação e Extração ZIP",
-            "Comprima múltiplos arquivos, pastas inteiras ou extraia pacotes .zip com segurança.",
+            "Compressão e Pacotes ZIP",
+            "Reduza o peso de imagens em KB/MB, comprima pastas em .zip ou extraia arquivos.",
         )
 
         grade = ctk.CTkScrollableFrame(frame, fg_color="transparent")
@@ -341,6 +344,13 @@ class JanelaPrincipal(ctk.CTk):
         grade.grid_columnconfigure((0, 1), weight=1)
 
         opcoes_zip = [
+            (
+                "OTIMIZAÇÃO  |  JPG / PNG",
+                "Comprimir Tamanho de Imagem",
+                "Reduz o peso em KB/MB de imagens JPG e PNG mantendo o formato original e qualidade visual.",
+                "Selecionar Imagem",
+                self.comprimir_imagem_tamanho,
+            ),
             (
                 "ARQUIVOS  |  MÚLTIPLOS",
                 "Compactar Arquivos em ZIP",
@@ -700,6 +710,39 @@ class JanelaPrincipal(ctk.CTk):
     def converter_png(self):
         self.converter_imagem(self.conversao_png_para_jpg, "PNG", "JPG", ("*.png",))
 
+    def comprimir_imagem_tamanho(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        self._definir_status("Selecionando imagem JPG ou PNG para comprimir...", "neutro")
+        arquivo = filedialog.askopenfilename(
+            parent=self,
+            title="Selecionar imagem para comprimir",
+            filetypes=[("Imagens JPG e PNG", ("*.jpg", "*.jpeg", "*.png"))],
+        )
+        if not arquivo:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origem = Path(arquivo)
+        extensao = origem.suffix.lower() if origem.suffix.lower() in (".jpg", ".jpeg", ".png") else ".jpg"
+        formato_label = "PNG" if extensao == ".png" else "JPG"
+
+        destino = self._solicitar_destino_salvar(
+            titulo=f"Salvar {formato_label} comprimido como",
+            pasta_inicial=origem.parent,
+            nome_sugerido=f"{origem.stem}-comprimido{extensao}",
+            formato_destino=formato_label,
+            extensao_padrao=extensao,
+        )
+        if destino is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        self._executar_operacao(
+            self.compressao_imagem, (origem,), destino, f"{formato_label} OTIMIZADO"
+        )
+
     def converter_docx_pdf(self):
         if self._thread_operacao is not None and self._thread_operacao.is_alive():
             return
@@ -1014,7 +1057,24 @@ class JanelaPrincipal(ctk.CTk):
         self, formato_destino: str, origens: tuple[Path, ...], resultado: Path
     ):
         self._limpar_estado_execucao()
-        self._definir_status(f"{formato_destino} concluído em {resultado}", "sucesso")
+        detalhe_reducao = ""
+        if (
+            "OTIMIZADO" in formato_destino
+            and len(origens) == 1
+            and origens[0].is_file()
+            and resultado.is_file()
+        ):
+            tam_antes = origens[0].stat().st_size
+            tam_depois = resultado.stat().st_size
+            if tam_antes > 0:
+                economia = max(0.0, (1 - (tam_depois / tam_antes)) * 100)
+                antes_str = RepositorioHistorico.formatar_tamanho(tam_antes)
+                depois_str = RepositorioHistorico.formatar_tamanho(tam_depois)
+                detalhe_reducao = f" ({antes_str} -> {depois_str}, -{economia:.0f}%)"
+
+        self._definir_status(
+            f"{formato_destino} salvo em {resultado}{detalhe_reducao}", "sucesso"
+        )
         self._registrar_no_historico(formato_destino, origens, resultado)
 
     def _limpar_estado_execucao(self):
