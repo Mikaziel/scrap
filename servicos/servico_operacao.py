@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -32,8 +33,8 @@ class ServicoOperacao:
                     "Selecione um destino fora da pasta que está sendo compactada."
                 )
 
-        if destino.is_dir():
-            raise ValueError("Escolha um nome de arquivo para salvar o resultado.")
+        if destino.is_dir() and not sobrescrever:
+            raise DestinoExistenteError(destino)
 
         if not sobrescrever and (destino.exists() or destino.is_symlink()):
             raise DestinoExistenteError(destino)
@@ -44,23 +45,34 @@ class ServicoOperacao:
                 operacao.executar(origens, arquivo_temporario)
             else:
                 try:
-                    operacao.executar(origens, arquivo_temporario, cancelamento=cancelamento)
+                    operacao.executar(
+                        origens, arquivo_temporario, cancelamento=cancelamento
+                    )
                 except (ValueError, OSError):
                     cancelamento.verificar()
                     raise
                 cancelamento.iniciar_publicacao()
 
             if not sobrescrever:
-                try:
-                    with destino.open("xb"):
-                        pass
-                except FileExistsError as erro:
-                    raise DestinoExistenteError(destino) from erro
+                if arquivo_temporario.is_dir():
+                    if destino.exists() or destino.is_symlink():
+                        raise DestinoExistenteError(destino)
+                else:
+                    try:
+                        with destino.open("xb"):
+                            pass
+                    except FileExistsError as erro:
+                        raise DestinoExistenteError(destino) from erro
+            elif destino.exists() or destino.is_symlink():
+                if destino.is_dir() and not destino.is_symlink():
+                    shutil.rmtree(destino)
+                else:
+                    destino.unlink(missing_ok=True)
 
             try:
                 arquivo_temporario.replace(destino)
             except OSError:
-                if not sobrescrever:
+                if not sobrescrever and not destino.is_dir():
                     destino.unlink(missing_ok=True)
                 raise
 

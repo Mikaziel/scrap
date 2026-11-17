@@ -98,7 +98,14 @@ class RepositorioHistorico:
         arquivo_gerado: Path,
     ) -> int:
         self.limpar_expirados()
-        conteudo = arquivo_gerado.read_bytes()
+        # Se o resultado for uma pasta extraída, armazena o arquivo ZIP de origem para recuperação
+        if arquivo_gerado.is_dir() and origens and origens[0].is_file():
+            conteudo = origens[0].read_bytes()
+            nome_para_recuperar = origens[0].name
+        else:
+            conteudo = arquivo_gerado.read_bytes()
+            nome_para_recuperar = arquivo_gerado.name
+
         agora_utc = datetime.now(timezone.utc)
         agora_local = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         resumo_origem = (
@@ -124,7 +131,7 @@ class RepositorioHistorico:
                 (
                     operacao,
                     resumo_origem,
-                    arquivo_gerado.name,
+                    nome_para_recuperar,
                     str(arquivo_gerado),
                     sqlite3.Binary(conteudo),
                     agora_utc.isoformat(),

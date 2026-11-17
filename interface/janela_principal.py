@@ -6,6 +6,7 @@ import customtkinter as ctk
 
 from interface.icones import carregar_icones
 from operacoes.cancelamento import CancelamentoOperacao, OperacaoCancelada
+from operacoes.descompactacao_zip import DescompactacaoZip
 from operacoes.operacao_arquivo import OperacaoArquivo
 from servicos.repositorio_historico import RegistroHistorico, RepositorioHistorico
 from servicos.servico_operacao import DestinoExistenteError, ServicoOperacao
@@ -24,6 +25,7 @@ class JanelaPrincipal(ctk.CTk):
         conversao_docx_para_pdf: OperacaoArquivo,
         conversao_pdf_para_docx: OperacaoArquivo,
         compactacao_zip: OperacaoArquivo,
+        descompactacao_zip: OperacaoArquivo | None = None,
         repositorio_historico: RepositorioHistorico | None = None,
     ):
         super().__init__()
@@ -38,6 +40,7 @@ class JanelaPrincipal(ctk.CTk):
         self.conversao_docx_para_pdf = conversao_docx_para_pdf
         self.conversao_pdf_para_docx = conversao_pdf_para_docx
         self.compactacao_zip = compactacao_zip
+        self.descompactacao_zip = descompactacao_zip or DescompactacaoZip()
         self.repositorio_historico = repositorio_historico or RepositorioHistorico()
 
         # Controle de execução em background e cancelamento
@@ -329,8 +332,8 @@ class JanelaPrincipal(ctk.CTk):
 
         self._criar_cabecalho_secao(
             frame,
-            "Compactação em ZIP",
-            "Agrupe e comprima múltiplos arquivos avulsos ou diretórios inteiros.",
+            "Compactação e Extração ZIP",
+            "Comprima múltiplos arquivos, pastas inteiras ou extraia pacotes .zip com segurança.",
         )
 
         grade = ctk.CTkScrollableFrame(frame, fg_color="transparent")
@@ -351,6 +354,13 @@ class JanelaPrincipal(ctk.CTk):
                 "Comprime uma pasta completa preservando toda a estrutura interna de subpastas.",
                 "Escolher Pasta",
                 self.compactar_pasta_zip,
+            ),
+            (
+                "EXTRAÇÃO  |  ZIP -> PASTA",
+                "Extrair Arquivo ZIP",
+                "Descompacta o conteúdo de um arquivo .zip em uma pasta, mantendo as subpastas originais.",
+                "Selecionar ZIP",
+                self.descompactar_arquivo_zip,
             ),
         ]
 
@@ -373,7 +383,6 @@ class JanelaPrincipal(ctk.CTk):
             "Arquivos convertidos ou compactados ficam salvos no banco SQLite local por 30 dias para recuperação rápida.",
         )
 
-        # Barra de controle do histórico (Resumo de espaço + Botão Limpar Tudo)
         barra_topo = ctk.CTkFrame(
             frame, corner_radius=10, fg_color=("gray88", "gray17")
         )
@@ -680,7 +689,7 @@ class JanelaPrincipal(ctk.CTk):
         return destino
 
     # =========================================================================
-    # AÇÕES DE CONVERSÃO E COMPACTAÇÃO
+    # AÇÕES DE CONVERSÃO, COMPACTAÇÃO E EXTRAÇÃO
     # =========================================================================
 
     def converter_jpg(self):
@@ -848,6 +857,44 @@ class JanelaPrincipal(ctk.CTk):
         nome_zip = f"{origem.name}.zip"
         self._escolher_destino_e_compactar((origem,), origem.parent, nome_zip)
 
+    def descompactar_arquivo_zip(self):
+        if self._thread_operacao is not None and self._thread_operacao.is_alive():
+            return
+
+        self._definir_status("Selecionando arquivo ZIP para extrair...", "neutro")
+        arquivo = filedialog.askopenfilename(
+            parent=self,
+            title="Selecionar arquivo ZIP",
+            filetypes=[("Arquivo ZIP", ("*.zip",))],
+        )
+        if not arquivo:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        origem = Path(arquivo)
+        pasta_pai = filedialog.askdirectory(
+            parent=self,
+            title="Escolher pasta onde o conteúdo será extraído",
+            initialdir=str(origem.parent),
+            mustexist=True,
+        )
+        if not pasta_pai:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        dialogo_nome = ctk.CTkInputDialog(
+            text=f"Nome da pasta de destino (será criada em {Path(pasta_pai).name}):",
+            title="Nome da Pasta Extraída",
+        )
+        nome_pasta = dialogo_nome.get_input()
+        if nome_pasta is None:
+            self._definir_status("Operação cancelada.", "neutro")
+            return
+
+        nome_limpo = nome_pasta.strip() or origem.stem
+        destino = Path(pasta_pai) / nome_limpo
+        self._executar_operacao(self.descompactacao_zip, (origem,), destino, "EXTRAÇÃO")
+
     def _escolher_destino_e_compactar(
         self, origens: tuple[Path, ...], pasta_inicial: Path, nome_sugerido: str
     ):
@@ -881,9 +928,10 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         if not sobrescrever and (destino.exists() or destino.is_symlink()):
+            tipo_item = "uma pasta" if destino.is_dir() else "um arquivo"
             if not messagebox.askyesno(
-                "Substituir arquivo",
-                f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
+                "Substituir destino",
+                f"Já existe {tipo_item} com o nome '{destino.name}'. Deseja substituí-lo?",
                 parent=self,
             ):
                 self._definir_status("Operação cancelada pelo usuário.", "neutro")
@@ -921,7 +969,7 @@ class JanelaPrincipal(ctk.CTk):
                 self.after(0, lambda: self._finalizar_erro(mensagem_erro))
             except OSError:
                 mensagem_os = (
-                    f"Não foi possível salvar o {formato_destino} no destino escolhido."
+                    f"Não foi possível salvar o resultado ({formato_destino}) no destino escolhido."
                 )
                 self.after(0, lambda: self._finalizar_erro(mensagem_os))
             else:
@@ -944,8 +992,8 @@ class JanelaPrincipal(ctk.CTk):
     ):
         self._limpar_estado_execucao()
         if messagebox.askyesno(
-            "Substituir arquivo",
-            f"Já existe um arquivo chamado {destino.name}. Deseja substituí-lo?",
+            "Substituir destino",
+            f"Já existe um item chamado {destino.name}. Deseja substituí-lo?",
             parent=self,
         ):
             self._executar_operacao(
@@ -966,7 +1014,7 @@ class JanelaPrincipal(ctk.CTk):
         self, formato_destino: str, origens: tuple[Path, ...], resultado: Path
     ):
         self._limpar_estado_execucao()
-        self._definir_status(f"{formato_destino} salvo em {resultado}", "sucesso")
+        self._definir_status(f"{formato_destino} concluído em {resultado}", "sucesso")
         self._registrar_no_historico(formato_destino, origens, resultado)
 
     def _limpar_estado_execucao(self):
