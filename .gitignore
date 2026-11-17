@@ -223,3 +223,6 @@ __marimo__/
 #Docker
 .devcontainer
 devcontainer.json
+
+#banco de dados 
+*db
