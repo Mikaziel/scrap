@@ -1,6 +1,7 @@
 from pathlib import Path
+from sys import platform
 from threading import Thread
-from tkinter import filedialog, messagebox
+from tkinter import Canvas, filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -286,6 +287,7 @@ class JanelaPrincipal(ctk.CTk):
         grade = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         grade.grid(row=2, column=0, sticky="nsew")
         grade.grid_columnconfigure((0, 1), weight=1)
+        self._habilitar_trackpad_conversao(grade)
 
         conversoes_disponiveis = [
             (
@@ -334,6 +336,33 @@ class JanelaPrincipal(ctk.CTk):
             )
 
         return frame
+
+    def _habilitar_trackpad_conversao(self, grade: ctk.CTkScrollableFrame) -> None:
+        if platform != "darwin" or not self.tk.call(
+            "info", "commands", "::tk::PreciseScrollDeltas"
+        ):
+            return
+
+        canvas = grade.master
+        if not isinstance(canvas, Canvas):
+            return
+
+        def rolar(evento):
+            widget = evento.widget
+            while widget is not canvas:
+                widget = getattr(widget, "master", None)
+                if widget is None:
+                    return
+
+            _, delta_y = self.tk.splitlist(
+                self.tk.call("::tk::PreciseScrollDeltas", evento.delta)
+            )
+            delta_y = int(delta_y)
+            if delta_y:
+                canvas.yview_scroll(-delta_y, "units")
+                return "break"
+
+        self.bind("<TouchpadScroll>", rolar, add="+")
 
     def _criar_secao_compactacao(self) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(self.container, fg_color="transparent")
