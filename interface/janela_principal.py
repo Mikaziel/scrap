@@ -307,7 +307,7 @@ class JanelaPrincipal(ctk.CTk):
             (
                 "DOCUMENTO  |  IMG -> PDF",
                 "Converter Imagens para PDF",
-                "Gera um documento PDF a partir de uma ou várias imagens (JPG e PNG), criando páginas em sequência.",
+                "Gera um PDF a partir de imagens JPG e PNG. Você pode ajustar a ordem das páginas.",
                 "Selecionar Imagens",
                 self.converter_imagens_pdf,
             ),
@@ -929,6 +929,18 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         origens = tuple(Path(arquivo) for arquivo in arquivos)
+        if len(origens) > 1:
+            self._definir_status("Aguardando confirmação da ordem das páginas...", "neutro")
+            origens_ordenadas = self._ordenar_arquivos(
+                origens,
+                titulo="Ordem das páginas do PDF",
+                instrucao="Selecione uma imagem e use Subir ou Descer para mudar a ordem.",
+            )
+            if origens_ordenadas is None:
+                self._definir_status("Operação cancelada.", "neutro")
+                return
+            origens = origens_ordenadas
+
         nome_pdf = (
             f"{origens[0].stem}.pdf" if len(origens) == 1 else "imagens_convertidas.pdf"
         )
@@ -967,7 +979,11 @@ class JanelaPrincipal(ctk.CTk):
             return
 
         self._definir_status("Aguardando confirmação da ordem dos PDFs...", "neutro")
-        origens_ordenadas = self._ordenar_pdfs(origens)
+        origens_ordenadas = self._ordenar_arquivos(
+            origens,
+            titulo="Ordem da mesclagem",
+            instrucao="Selecione um PDF e use Subir ou Descer para mudar a ordem.",
+        )
         if origens_ordenadas is None:
             self._definir_status("Operação cancelada.", "neutro")
             return
@@ -987,9 +1003,11 @@ class JanelaPrincipal(ctk.CTk):
             self.mesclar_pdf, origens_ordenadas, destino, "PDF MESCLADO"
         )
 
-    def _ordenar_pdfs(self, origens: tuple[Path, ...]) -> tuple[Path, ...] | None:
+    def _ordenar_arquivos(
+        self, origens: tuple[Path, ...], *, titulo: str, instrucao: str
+    ) -> tuple[Path, ...] | None:
         dialogo = ctk.CTkToplevel(self)
-        dialogo.title("Ordem da mesclagem")
+        dialogo.title(titulo)
         dialogo.geometry("540x360")
         dialogo.minsize(460, 270)
         dialogo.transient(self)
@@ -1004,7 +1022,7 @@ class JanelaPrincipal(ctk.CTk):
 
         ctk.CTkLabel(
             dialogo,
-            text="Selecione um PDF e use Subir ou Descer para mudar a ordem.",
+            text=instrucao,
             justify="left",
             wraplength=400,
         ).pack(anchor="w", padx=20, pady=(16, 8))
