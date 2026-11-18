@@ -240,6 +240,7 @@ class JanelaPrincipal(ctk.CTk):
         )
         card.grid(row=linha, column=coluna, padx=8, pady=8, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure(2, weight=1)
 
         badge = ctk.CTkLabel(
             card,
@@ -265,7 +266,7 @@ class JanelaPrincipal(ctk.CTk):
             text_color=("gray35", "gray65"),
             justify="left",
             wraplength=270,
-        ).grid(row=2, column=0, padx=20, pady=(0, 18), sticky="w")
+        ).grid(row=2, column=0, padx=20, pady=(0, 18), sticky="nw")
 
         botao = ctk.CTkButton(
             card,
